@@ -1,6 +1,4 @@
 import type { IWindParameters,
-    IMandrelParameters,
-    ITowParameters,
     ILayerParameters,
     THelicalLayer,
     THoopLayer,
@@ -11,7 +9,25 @@ import { ELayerType } from './types';
 import { WinderMachine } from './machine';
 import { radToDeg, degToRad } from '../helpers'; 
 
+export interface IPlannedLayerSummary {
+    layerIndex: number;
+    layerType: string;
+    timeS: number;
+    towUseM: number;
+}
+
+export interface IPlanWindResult {
+    gcode: string[];
+    totalTimeS: number;
+    totalTowUseM: number;
+    layers: IPlannedLayerSummary[];
+}
+
 export function planWind(windingParameters: IWindParameters, verboseOutput = false): string[] {
+    return planWindDetailed(windingParameters, verboseOutput, true).gcode;
+}
+
+export function planWindDetailed(windingParameters: IWindParameters, verboseOutput = false, logProgress = false): IPlanWindResult {
 
     const machine = new WinderMachine(windingParameters.mandrelParameters.diameter, verboseOutput);
 
@@ -28,6 +44,7 @@ export function planWind(windingParameters: IWindParameters, verboseOutput = fal
     let layerIndex = 0;
     let cumulativeTimeS = 0;
     let cumulativeTowUseM = 0;
+    const layerSummaries: IPlannedLayerSummary[] = [];
 
     for (const layer of windingParameters.layers) {
         if (encounteredTerminalLayer) {
@@ -36,7 +53,9 @@ export function planWind(windingParameters: IWindParameters, verboseOutput = fal
         }
 
         const layerComment = `Layer ${layerIndex + 1} of ${windingParameters.layers.length}: ${layer.windType}`;
-        console.log(layerComment)
+        if (logProgress) {
+            console.log(layerComment)
+        }
         machine.insertComment(layerComment);
         switch(layer.windType) {
             case ELayerType.HOOP:
@@ -67,21 +86,41 @@ export function planWind(windingParameters: IWindParameters, verboseOutput = fal
         // Increment mandrel diameter, etc
         layerIndex += 1;
 
-        console.log(`Layer time estimate: ${machine.getGCodeTimeS() - cumulativeTimeS} seconds`);
-        console.log(`Layer tow required: ${machine.getTowLengthM() - cumulativeTowUseM} meters`);
+        const layerTimeS = machine.getGCodeTimeS() - cumulativeTimeS;
+        const layerTowUseM = machine.getTowLengthM() - cumulativeTowUseM;
+        if (logProgress) {
+            console.log(`Layer time estimate: ${layerTimeS} seconds`);
+            console.log(`Layer tow required: ${layerTowUseM} meters`);
+        }
+
+        layerSummaries.push({
+            layerIndex,
+            layerType: layer.windType,
+            timeS: layerTimeS,
+            towUseM: layerTowUseM
+        });
 
         cumulativeTimeS = machine.getGCodeTimeS();
         cumulativeTowUseM = machine.getTowLengthM();
 
-        console.log('-'.repeat(80))
+        if (logProgress) {
+            console.log('-'.repeat(80))
+        }
     }
 
     // TODO: Run cleanup stuff
 
-    console.log(`\nTotal time estimate: ${cumulativeTimeS} seconds`);
-    console.log(`Total tow required: ${cumulativeTowUseM} meters\n`);
+    if (logProgress) {
+        console.log(`\nTotal time estimate: ${cumulativeTimeS} seconds`);
+        console.log(`Total tow required: ${cumulativeTowUseM} meters\n`);
+    }
 
-    return machine.getGCode();
+    return {
+        gcode: machine.getGCode(),
+        totalTimeS: cumulativeTimeS,
+        totalTowUseM: cumulativeTowUseM,
+        layers: layerSummaries
+    };
 }
 
 // A layer planning function is responsible for a there-and-back and resetting the coordinates to (0, 0, 0) when done
@@ -216,7 +255,7 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
         for(let inPatternIndex = 0; inPatternIndex < patternNumber; inPatternIndex ++) {
             machine.insertComment(`\tPattern: ${patternIndex + 1}/${numberOfPatterns} Circuit: ${inPatternIndex + 1}/${patternNumber}`);
 
-            for (let passParams of passParameters) {
+            for (const passParams of passParameters) {
                 // Wind to the start point for this pass, while tilting the delivery head to clean up from last pass
                 machine.move({
                     [ECoordinateAxes.MANDREL]: mandrelPositionDegrees,

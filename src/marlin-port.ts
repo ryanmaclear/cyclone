@@ -1,5 +1,11 @@
 import { SerialPort, ReadlineParser } from 'serialport';
 import { isObject } from './helpers';
+import { IMarlinStatus } from './app-types';
+
+export interface IMarlinPortEvents {
+    onStatus?: (status: IMarlinStatus) => void;
+    onLog?: (message: string) => void;
+}
 
 export class MarlinPort {
     
@@ -13,8 +19,10 @@ export class MarlinPort {
     private pausing = false;
     private paused = false;
     private resuming = false;
+    private totalCommands = 0;
+    private sentCommands = 0;
 
-    constructor( private portPath: string, private verbose = false, private baudRate = 115200 ) {
+    constructor( private portPath: string, private verbose = false, private baudRate = 115200, private events: IMarlinPortEvents = {} ) {
 
     }
 
@@ -38,14 +46,15 @@ export class MarlinPort {
         });
 
         return new Promise((resolve, reject) => {
-            console.log(`Opening "${this.portPath}" at ${this.baudRate} baud`);
+            this.log(`Opening "${this.portPath}" at ${this.baudRate} baud`);
             this.port.open((error) => {
               if (isObject(error)) {
                 return reject(`Error opening port: ${error.message}`);
               }
-              console.log('Port opened.\n');
+              this.log('Port opened.');
               this.isInitialized = true;
               this.tryNextCommand();
+              this.emitStatus();
               resolve();
             })
         });
@@ -54,29 +63,79 @@ export class MarlinPort {
     public reset(): void {
         this.hasCommandWaiting = false;
         this.commandQueue = [];
+        this.pausing = false;
+        this.paused = false;
+        this.resuming = false;
+        this.totalCommands = 0;
+        this.sentCommands = 0;
 
         this.isInitialized = false;
+        this.emitStatus();
         return void 0;
     }
 
+    public async disconnect(): Promise<void> {
+        this.hasCommandWaiting = false;
+        this.commandQueue = [];
+        this.pausing = false;
+        this.paused = false;
+        this.resuming = false;
+
+        if (!this.port || !this.port.isOpen) {
+            this.reset();
+            return void 0;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+            this.port.close((error) => {
+                if (isObject(error)) {
+                    reject(`Error closing port: ${error.message}`);
+                    return;
+                }
+                resolve();
+            });
+        });
+        this.reset();
+    }
+
     public queueCommand(line: string): void {
+        if (this.isMachineCommand(line)) {
+            this.totalCommands += 1;
+        }
         this.commandQueue.push(line);
         this.tryNextCommand();
+        this.emitStatus();
+    }
+
+    public queueCommands(lines: string[]): void {
+        this.commandQueue = [];
+        this.totalCommands = 0;
+        this.sentCommands = 0;
+        for (const line of lines) {
+            this.queueCommand(line);
+        }
+    }
+
+    public clearQueue(): void {
+        this.commandQueue = [];
+        this.emitStatus();
     }
 
     public pause(): void {
         if (this.paused || this.pausing || this.resuming) {
-            console.log('Cannot pause when already paused or resuming!');
+            this.log('Cannot pause when already paused or resuming!');
             return void 0;
         }
         this.pausing = true;
         this.writeCommand('M0');
+        this.emitStatus();
     }
 
     public completePause(): void {
         this.pausing = false;
         this.paused = true;
-        console.log('Machine paused.')
+        this.log('Machine paused.');
+        this.emitStatus();
     }
 
     public isPaused(): boolean {
@@ -85,11 +144,12 @@ export class MarlinPort {
 
     public resume(): void {
         if (!this.paused || this.resuming) {
-            console.log('Cannot resume when already resuming or not paused!');
+            this.log('Cannot resume when already resuming or not paused!');
             return void 0;
         }
         this.resuming = true;
         this.writeCommand('M108');
+        this.emitStatus();
     }
 
     public completeResume(): void {
@@ -101,12 +161,27 @@ export class MarlinPort {
         this.paused = false;
         this.resuming = false;
         this.tryNextCommand();
+        this.emitStatus();
+    }
+
+    public getStatus(): IMarlinStatus {
+        return {
+            connected: this.isInitialized,
+            paused: this.paused,
+            pausing: this.pausing,
+            resuming: this.resuming,
+            queuedCommands: this.commandQueue.length,
+            totalCommands: this.totalCommands,
+            sentCommands: this.sentCommands,
+            portPath: this.isInitialized ? this.portPath : null
+        };
     }
 
     private processSerialResponseLine(line: string): void {
         if ( line === 'ok' ) {
             this.hasCommandWaiting = false; 
             this.tryNextCommand();
+            this.emitStatus();
             return void 0;
         }
 
@@ -121,14 +196,14 @@ export class MarlinPort {
 
         if ( line === '//action:notification 3D Printer Ready.') {
             if (!this.resuming) {
-                console.log('Saw resume response while not resuming!');
+                this.log('Saw resume response while not resuming!');
                 return void 0;
             }
             this.completeResume();
             return void 0;
         }
 
-        console.log(`Got back unexpected response '${line}'`);
+        this.log(`Got back unexpected response '${line}'`);
         return void 0;
     }
 
@@ -139,17 +214,37 @@ export class MarlinPort {
         const commandToSend = this.commandQueue.shift();
         // Check for comments
         if (commandToSend.slice(0, 1) === ';') {
-            console.log(commandToSend.slice(1).trim())
+            this.log(commandToSend.slice(1).trim())
             return this.tryNextCommand();
         }
         if (this.verbose) {
-            console.log(`Sending "${commandToSend}"`);
+            this.log(`Sending "${commandToSend}"`);
         }
         this.hasCommandWaiting = true;
+        this.sentCommands += 1;
+        this.emitStatus();
         this.writeCommand(commandToSend);
     }
 
     private writeCommand(command: string): void {
         this.port.write(`${command}\n`);
+    }
+
+    private isMachineCommand(line: string): boolean {
+        return line.trim().length > 0 && line.trim().slice(0, 1) !== ';';
+    }
+
+    private emitStatus(): void {
+        if (this.events.onStatus) {
+            this.events.onStatus(this.getStatus());
+        }
+    }
+
+    private log(message: string): void {
+        if (this.events.onLog) {
+            this.events.onLog(message);
+            return;
+        }
+        console.log(message);
     }
 }

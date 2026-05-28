@@ -2,24 +2,357 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Hello World!</title>
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+    <title>Cyclone</title>
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
+      content="default-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     />
     <meta
       http-equiv="X-Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
+      content="default-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     />
+    <style>
+      :root {
+        color: #20242a;
+        background: #f7f8f5;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 15px;
+      }
+
+      body {
+        margin: 0;
+        min-width: 980px;
+      }
+
+      header {
+        align-items: center;
+        background: #263238;
+        color: #ffffff;
+        display: flex;
+        gap: 24px;
+        height: 56px;
+        padding: 0 24px;
+      }
+
+      header h1 {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0;
+        margin: 0;
+      }
+
+      header .status-pill {
+        background: #3d6f62;
+        border-radius: 4px;
+        font-size: 12px;
+        padding: 5px 8px;
+      }
+
+      main {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: 360px 1fr;
+        padding: 18px;
+      }
+
+      section {
+        background: #ffffff;
+        border: 1px solid #d8ddd2;
+        border-radius: 6px;
+      }
+
+      section h2 {
+        border-bottom: 1px solid #e3e7df;
+        font-size: 15px;
+        margin: 0;
+        padding: 12px 14px;
+      }
+
+      .panel-body {
+        padding: 14px;
+      }
+
+      .field-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      label {
+        color: #3d464d;
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      input,
+      select {
+        border: 1px solid #b8c1b2;
+        border-radius: 4px;
+        box-sizing: border-box;
+        color: #20242a;
+        font: inherit;
+        height: 34px;
+        padding: 6px 8px;
+        width: 100%;
+      }
+
+      details {
+        margin-top: 14px;
+      }
+
+      summary {
+        color: #3d464d;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      button {
+        background: #2f6f73;
+        border: 0;
+        border-radius: 4px;
+        color: #ffffff;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+        min-height: 34px;
+        padding: 8px 12px;
+      }
+
+      button.secondary {
+        background: #58636b;
+      }
+
+      button.warning {
+        background: #8a5b28;
+      }
+
+      button:disabled {
+        background: #aeb8b1;
+        cursor: not-allowed;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .preview-grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: minmax(420px, 1fr) 280px;
+      }
+
+      .plot-frame {
+        align-items: center;
+        background: #fbfbf8;
+        border: 1px solid #d8ddd2;
+        display: flex;
+        min-height: 300px;
+        overflow: auto;
+      }
+
+      .plot-frame img {
+        display: block;
+        image-rendering: auto;
+        max-width: 100%;
+      }
+
+      .empty-preview {
+        color: #68727a;
+        margin: auto;
+      }
+
+      .metric-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .metric {
+        border-bottom: 1px solid #e3e7df;
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+      }
+
+      .metric strong {
+        color: #20242a;
+      }
+
+      .warnings {
+        color: #6f421c;
+        font-size: 13px;
+        margin: 12px 0 0;
+        padding-left: 18px;
+      }
+
+      .machine-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 1fr 110px;
+      }
+
+      .arm-row {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .arm-row input {
+        height: 16px;
+        width: 16px;
+      }
+
+      pre {
+        background: #1f2529;
+        border-radius: 4px;
+        color: #edf2ed;
+        font-size: 12px;
+        line-height: 1.35;
+        margin: 12px 0 0;
+        max-height: 160px;
+        overflow: auto;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+
+      .message {
+        color: #6f421c;
+        font-size: 13px;
+        min-height: 18px;
+        padding-top: 10px;
+      }
+    </style>
   </head>
   <body>
-    <h1>Hello World!</h1>
-    We are using Node.js <span id="node-version"></span>, Chromium
-    <span id="chrome-version"></span>, and Electron
-    <span id="electron-version"></span>.
+    <header>
+      <h1>Cyclone</h1>
+      <span class="status-pill" id="machine-status">Disconnected</span>
+    </header>
 
-    <!-- You can also require other files to run in this process -->
-    <script src="./dist/renderer.js"></script>
+    <main>
+      <div>
+        <section>
+          <h2>Tube Recipe</h2>
+          <div class="panel-body">
+            <div class="field-grid">
+              <label>
+                Diameter mm
+                <input id="diameter" type="number" min="1" step="0.01" value="69.75" />
+              </label>
+              <label>
+                Wind length mm
+                <input id="wind-length" type="number" min="1" step="0.01" value="940" />
+              </label>
+              <label>
+                Winding angle deg
+                <input id="wind-angle" type="number" min="10" max="80" step="0.1" value="55" />
+              </label>
+              <label>
+                Layers
+                <input id="layer-count" type="number" min="1" step="1" value="4" />
+              </label>
+              <label>
+                Strength
+                <select id="strength">
+                  <option value="light">Light</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="heavy">Heavy</option>
+                </select>
+              </label>
+            </div>
+
+            <details>
+              <summary>Advanced</summary>
+              <div class="field-grid" style="margin-top: 12px;">
+                <label>
+                  Tow width mm
+                  <input id="tow-width" type="number" min="0.01" step="0.01" value="7" />
+                </label>
+                <label>
+                  Tow thickness mm
+                  <input id="tow-thickness" type="number" min="0.01" step="0.01" value="0.5" />
+                </label>
+                <label>
+                  Feed rate
+                  <input id="feed-rate" type="number" min="1" step="1" value="9000" />
+                </label>
+                <label>
+                  Lock degrees
+                  <input id="lock-degrees" type="number" min="1" step="1" value="720" />
+                </label>
+                <label>
+                  Lead-in mm
+                  <input id="lead-in" type="number" min="0" step="0.1" value="30" />
+                </label>
+                <label>
+                  Lead-out deg
+                  <input id="lead-out" type="number" min="0" step="1" value="90" />
+                </label>
+              </div>
+            </details>
+
+            <div class="button-row">
+              <button id="generate">Generate Preview</button>
+              <button id="save" class="secondary" disabled>Save Artifacts</button>
+            </div>
+            <div id="recipe-message" class="message"></div>
+          </div>
+        </section>
+
+        <section style="margin-top: 18px;">
+          <h2>Machine</h2>
+          <div class="panel-body">
+            <div class="machine-grid">
+              <label>
+                Serial port
+                <select id="serial-port"></select>
+              </label>
+              <label>
+                Baud
+                <input id="baud-rate" type="number" min="1" step="1" value="115200" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="refresh-ports" class="secondary">Refresh</button>
+              <button id="connect">Connect</button>
+              <button id="disconnect" class="secondary" disabled>Disconnect</button>
+            </div>
+            <div class="arm-row">
+              <input id="arm-run" type="checkbox" disabled />
+              <label for="arm-run">Arm generated G-code</label>
+            </div>
+            <div class="button-row">
+              <button id="run" class="warning" disabled>Run</button>
+              <button id="pause" class="secondary" disabled>Pause</button>
+              <button id="resume" class="secondary" disabled>Resume</button>
+              <button id="clear-queue" class="secondary" disabled>Clear Queue</button>
+            </div>
+            <div id="machine-message" class="message">Physical controller reset remains the emergency stop.</div>
+            <pre id="serial-log"></pre>
+          </div>
+        </section>
+      </div>
+
+      <section>
+        <h2>Preview</h2>
+        <div class="panel-body preview-grid">
+          <div class="plot-frame" id="plot-frame">
+            <span class="empty-preview">No preview generated</span>
+          </div>
+          <div>
+            <div class="metric-grid" id="summary"></div>
+            <ul class="warnings" id="warnings"></ul>
+            <pre id="paths"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./dist/src/renderer.js"></script>
   </body>
 </html>

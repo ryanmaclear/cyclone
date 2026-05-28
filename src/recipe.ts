@@ -1,0 +1,190 @@
+import { degToRad } from './helpers';
+import { ELayerType, IWindParameters, TLayerParameters } from './planner/types';
+
+export type TStrengthPreset = 'light' | 'medium' | 'heavy';
+
+export interface ITubeRecipeInput {
+    diameter: number;
+    windLength: number;
+    windAngle: number;
+    strengthPreset: TStrengthPreset;
+    layerCount?: number;
+    towWidth: number;
+    towThickness: number;
+    defaultFeedRate: number;
+    lockDegrees: number;
+    leadInMM: number;
+    leadOutDegrees: number;
+}
+
+export interface IGeneratedRecipe {
+    windParameters: IWindParameters;
+    summary: IRecipeSummary;
+    warnings: string[];
+}
+
+export interface IRecipeSummary {
+    requestedLayerCount: number;
+    helicalLayerCount: number;
+    hoopLayerCount: number;
+    numCircuits: number;
+    patternNumber: number;
+}
+
+export interface IRecipeValidationResult {
+    valid: boolean;
+    errors: string[];
+}
+
+const PRESET_LAYER_COUNTS: Record<TStrengthPreset, number> = {
+    light: 2,
+    medium: 4,
+    heavy: 6
+};
+
+const HOOP_RATIOS: Record<TStrengthPreset, number> = {
+    light: 0,
+    medium: 0.25,
+    heavy: 0.4
+};
+
+export const MAX_AUTO_PATTERN_NUMBER = 4;
+export const MIN_WIND_ANGLE_DEGREES = 10;
+export const MAX_WIND_ANGLE_DEGREES = 80;
+
+export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidationResult {
+    const errors: string[] = [];
+
+    requirePositive(input.diameter, 'Diameter', errors);
+    requirePositive(input.windLength, 'Wind length', errors);
+    requirePositive(input.towWidth, 'Tow width', errors);
+    requirePositive(input.towThickness, 'Tow thickness', errors);
+    requirePositive(input.defaultFeedRate, 'Feed rate', errors);
+    requirePositive(input.lockDegrees, 'Lock degrees', errors);
+
+    if (!Number.isFinite(input.windAngle) || input.windAngle < MIN_WIND_ANGLE_DEGREES || input.windAngle > MAX_WIND_ANGLE_DEGREES) {
+        errors.push(`Winding angle must be between ${MIN_WIND_ANGLE_DEGREES} and ${MAX_WIND_ANGLE_DEGREES} degrees.`);
+    }
+
+    if (typeof input.layerCount !== 'undefined' && (!Number.isInteger(input.layerCount) || input.layerCount < 1)) {
+        errors.push('Layer count must be a whole number of at least 1.');
+    }
+
+    if (!Number.isFinite(input.leadInMM) || input.leadInMM < 0) {
+        errors.push('Lead-in must be zero or greater.');
+    }
+
+    if (Number.isFinite(input.leadInMM) && Number.isFinite(input.windLength) && input.leadInMM >= input.windLength) {
+        errors.push('Lead-in must be shorter than the wind length.');
+    }
+
+    if (!Number.isFinite(input.leadOutDegrees) || input.leadOutDegrees < 0) {
+        errors.push('Lead-out must be zero or greater.');
+    }
+
+    if (Number.isFinite(input.leadOutDegrees) && Number.isFinite(input.lockDegrees) && input.leadOutDegrees > input.lockDegrees) {
+        errors.push('Lead-out cannot be greater than lock degrees.');
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(PRESET_LAYER_COUNTS, input.strengthPreset)) {
+        errors.push('Strength preset must be light, medium, or heavy.');
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors
+    };
+}
+
+export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
+    const validation = validateTubeRecipeInput(input);
+    if (!validation.valid) {
+        throw new Error(validation.errors.join(' '));
+    }
+
+    const requestedLayerCount = input.layerCount || PRESET_LAYER_COUNTS[input.strengthPreset];
+    const hoopLayerCount = getHoopLayerCount(requestedLayerCount, input.strengthPreset);
+    const helicalLayerCount = requestedLayerCount - hoopLayerCount;
+    const numCircuits = calculateHelicalCircuitCount(input.diameter, input.towWidth, input.windAngle);
+    const patternNumber = choosePatternNumber(numCircuits);
+    const layers: TLayerParameters[] = [];
+
+    for (let index = 0; index < helicalLayerCount; index++) {
+        layers.push({
+            windType: ELayerType.HELICAL,
+            windAngle: input.windAngle,
+            patternNumber,
+            skipIndex: 1,
+            lockDegrees: input.lockDegrees,
+            leadInMM: input.leadInMM,
+            leadOutDegrees: input.leadOutDegrees,
+            skipInitialNearLock: index > 0
+        });
+    }
+
+    for (let index = 0; index < hoopLayerCount; index++) {
+        layers.push({
+            windType: ELayerType.HOOP,
+            terminal: false
+        });
+    }
+
+    return {
+        windParameters: {
+            layers,
+            mandrelParameters: {
+                diameter: input.diameter,
+                windLength: input.windLength
+            },
+            towParameters: {
+                width: input.towWidth,
+                thickness: input.towThickness
+            },
+            defaultFeedRate: input.defaultFeedRate
+        },
+        summary: {
+            requestedLayerCount,
+            helicalLayerCount,
+            hoopLayerCount,
+            numCircuits,
+            patternNumber
+        },
+        warnings: [
+            'Strength is a recipe preset, not a certified load rating.',
+            'Tow thickness is recorded but the current planner does not increase mandrel diameter between layers.',
+            'Hoop and helical locks create trim regions at the ends of the part.'
+        ]
+    };
+}
+
+export function calculateHelicalCircuitCount(diameter: number, towWidth: number, windAngle: number): number {
+    const mandrelCircumference = Math.PI * diameter;
+    const towArcLength = towWidth / Math.cos(degToRad(windAngle));
+    return Math.ceil(mandrelCircumference / towArcLength);
+}
+
+export function choosePatternNumber(numCircuits: number, maxPatternNumber = MAX_AUTO_PATTERN_NUMBER): number {
+    const highestCandidate = Math.min(numCircuits, maxPatternNumber);
+    for (let candidate = highestCandidate; candidate >= 1; candidate--) {
+        if (numCircuits % candidate === 0) {
+            return candidate;
+        }
+    }
+    return 1;
+}
+
+function getHoopLayerCount(layerCount: number, strengthPreset: TStrengthPreset): number {
+    const ratio = HOOP_RATIOS[strengthPreset];
+    if (ratio === 0 || layerCount <= 1) {
+        return 0;
+    }
+
+    const roundedHoopCount = Math.round(layerCount * ratio);
+    return Math.max(1, Math.min(layerCount - 1, roundedHoopCount));
+}
+
+function requirePositive(value: number, label: string, errors: string[]): void {
+    if (!Number.isFinite(value) || value <= 0) {
+        errors.push(`${label} must be greater than zero.`);
+    }
+}

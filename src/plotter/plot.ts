@@ -1,6 +1,5 @@
-import { createCanvas, loadImage } from 'canvas';
+import { createCanvas } from 'canvas';
 import { Readable } from 'stream';
-import { ICoordinate2D } from './types'
 import { generateCoordinates } from './helpers';
 import { IMandrelParameters, ITowParameters } from '../planner/types';
 
@@ -34,6 +33,18 @@ export function plotGCode(gcode: string[]): Readable | void {
         const lineParts = line.split(' ');
         if (lineParts[0] === ';') {
             // Comment, nothing to do
+            continue;
+        }
+
+        if (lineParts[0] === 'G92') {
+            for (const coordinate of lineParts.slice(1)) {
+                if (coordinate[0] === 'X') {
+                    xCoord = Number.parseFloat(coordinate.slice(1));
+                }
+                if (coordinate[0] === 'Y') {
+                    yCoord = Number.parseFloat(coordinate.slice(1));
+                }
+            }
             continue;
         }
 
@@ -77,4 +88,4 @@ export function plotGCode(gcode: string[]): Readable | void {
     }
 
     return canvas.createPNGStream();
-};
+}

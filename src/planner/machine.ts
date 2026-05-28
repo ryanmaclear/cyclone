@@ -51,7 +51,7 @@ export class WinderMachine {
         if (this.verboseOutput) {
             this.insertComment(`Move from ${serializeCoordinate(this.lastPosition)} to ${serializeCoordinate(completeEndPosition)} in ${numSegments} segments`);
         }
-        for (let intermediatePosition of interpolateCoordinates(this.lastPosition, completeEndPosition, numSegments)) {
+        for (const intermediatePosition of interpolateCoordinates(this.lastPosition, completeEndPosition, numSegments)) {
             this.moveSegment(intermediatePosition);
         }
     }

@@ -1,14 +1,30 @@
-// All of the Node.js APIs are available in the preload process.
-// It has the same sandbox as a Chrome extension.
-window.addEventListener("DOMContentLoaded", () => {
-  const replaceText = (selector: string, text: string) => {
-    const element = document.getElementById(selector);
-    if (element) {
-      element.innerText = text;
-    }
-  };
+import { contextBridge, ipcRenderer } from 'electron';
+import {
+  IMarlinStatus,
+  IPreviewRequest,
+  ISaveArtifactsRequest,
+  ISerialConnectRequest
+} from './app-types';
 
-  for (const type of ["chrome", "node", "electron"]) {
-    replaceText(`${type}-version`, process.versions[type as keyof NodeJS.ProcessVersions]);
+contextBridge.exposeInMainWorld('cyclone', {
+  generatePreview: (request: IPreviewRequest) => ipcRenderer.invoke('recipe:generate-preview', request),
+  chooseBasePath: () => ipcRenderer.invoke('recipe:choose-base-path'),
+  saveArtifacts: (request: ISaveArtifactsRequest) => ipcRenderer.invoke('recipe:save-artifacts', request),
+  listSerialPorts: () => ipcRenderer.invoke('serial:list-ports'),
+  connectSerial: (request: ISerialConnectRequest) => ipcRenderer.invoke('serial:connect', request),
+  disconnectSerial: () => ipcRenderer.invoke('serial:disconnect'),
+  runGCode: (commands: string[]) => ipcRenderer.invoke('serial:run-gcode', commands),
+  pauseMachine: () => ipcRenderer.invoke('serial:pause'),
+  resumeMachine: () => ipcRenderer.invoke('serial:resume'),
+  clearMachineQueue: () => ipcRenderer.invoke('serial:clear-queue'),
+  onSerialStatus: (callback: (status: IMarlinStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: IMarlinStatus) => callback(status);
+    ipcRenderer.on('serial:status', listener);
+    return () => ipcRenderer.off('serial:status', listener);
+  },
+  onSerialLog: (callback: (message: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, message: string) => callback(message);
+    ipcRenderer.on('serial:log', listener);
+    return () => ipcRenderer.off('serial:log', listener);
   }
 });

@@ -1,0 +1,65 @@
+import * as assert from 'assert';
+import { ELayerType } from '../src/planner/types';
+import { planWindDetailed } from '../src/planner';
+import { plotGCode } from '../src/plotter';
+import {
+    calculateHelicalCircuitCount,
+    choosePatternNumber,
+    generateTubeRecipe,
+    ITubeRecipeInput,
+    validateTubeRecipeInput
+} from '../src/recipe';
+
+const baseInput: ITubeRecipeInput = {
+    diameter: 70,
+    windLength: 900,
+    windAngle: 45,
+    strengthPreset: 'medium',
+    towWidth: 7,
+    towThickness: 0.5,
+    defaultFeedRate: 9000,
+    lockDegrees: 720,
+    leadInMM: 30,
+    leadOutDegrees: 90
+};
+
+const mediumRecipe = generateTubeRecipe(baseInput);
+assert.strictEqual(mediumRecipe.summary.requestedLayerCount, 4);
+assert.strictEqual(mediumRecipe.summary.helicalLayerCount, 3);
+assert.strictEqual(mediumRecipe.summary.hoopLayerCount, 1);
+assert.deepStrictEqual(mediumRecipe.windParameters.layers.map((layer) => layer.windType), [
+    ELayerType.HELICAL,
+    ELayerType.HELICAL,
+    ELayerType.HELICAL,
+    ELayerType.HOOP
+]);
+
+const heavyOverrideRecipe = generateTubeRecipe({
+    ...baseInput,
+    strengthPreset: 'heavy',
+    layerCount: 5
+});
+assert.strictEqual(heavyOverrideRecipe.summary.requestedLayerCount, 5);
+assert.strictEqual(heavyOverrideRecipe.summary.helicalLayerCount, 3);
+assert.strictEqual(heavyOverrideRecipe.summary.hoopLayerCount, 2);
+
+assert.strictEqual(choosePatternNumber(24), 4);
+assert.strictEqual(choosePatternNumber(21), 3);
+assert.strictEqual(choosePatternNumber(23), 1);
+assert.strictEqual(calculateHelicalCircuitCount(70, 7, 45), 23);
+
+const invalidRecipe = validateTubeRecipeInput({
+    ...baseInput,
+    diameter: 0,
+    windAngle: 89,
+    leadInMM: 900
+});
+assert.strictEqual(invalidRecipe.valid, false);
+assert.ok(invalidRecipe.errors.length >= 3);
+
+const plannedRecipe = planWindDetailed(mediumRecipe.windParameters, false, false);
+assert.ok(plannedRecipe.gcode.length > 0);
+assert.ok(plannedRecipe.totalTowUseM > 0);
+assert.ok(plotGCode(plannedRecipe.gcode));
+
+console.log('Recipe tests passed');
