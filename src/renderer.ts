@@ -3,6 +3,7 @@ type IPreviewResult = import('./app-types').IPreviewResult;
 type IPreviewSegment = import('./planner/types').IPreviewSegment;
 type ISaveArtifactsResult = import('./app-types').ISaveArtifactsResult;
 type ISerialPortOption = import('./app-types').ISerialPortOption;
+type TLayerParameters = import('./planner/types').TLayerParameters;
 type ITubeRecipeInput = import('./recipe').ITubeRecipeInput;
 type TStrengthPreset = import('./recipe').TStrengthPreset;
 
@@ -19,6 +20,9 @@ interface IPreviewView {
 }
 
 let currentPreview: IPreviewResult | null = null;
+const visibleLayerIndexes = new Set<number>();
+let hoveredLayerIndex: number | null = null;
+let selectedLayerIndex: number | null = null;
 const previewView: IPreviewView = {
     scale: 1,
     offsetX: 20,
@@ -78,6 +82,7 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('actual-size-preview').addEventListener('click', actualSizePreview);
     byId<HTMLButtonElement>('zoom-in-preview').addEventListener('click', () => zoomPreview(1.25));
     byId<HTMLButtonElement>('zoom-out-preview').addEventListener('click', () => zoomPreview(0.8));
+    byId<HTMLButtonElement>('show-all-layers').addEventListener('click', showAllLayers);
     byId<HTMLSelectElement>('color-mode').addEventListener('change', () => {
         previewView.colorMode = byId<HTMLSelectElement>('color-mode').value as TColorMode;
         drawPreview();
@@ -95,6 +100,7 @@ async function generatePreview(): Promise<void> {
     try {
         const preview = await window.cyclone.generatePreview({ recipeInput: readRecipeInput() });
         currentPreview = preview;
+        resetLayerVisibility(preview);
         renderPreview(preview);
         byId<HTMLButtonElement>('save').disabled = false;
         byId<HTMLInputElement>('arm-run').disabled = false;
@@ -102,6 +108,9 @@ async function generatePreview(): Promise<void> {
         setRecipeMessage('Preview generated.');
     } catch (error) {
         currentPreview = null;
+        visibleLayerIndexes.clear();
+        hoveredLayerIndex = null;
+        selectedLayerIndex = null;
         renderPreview(null);
         byId<HTMLButtonElement>('save').disabled = true;
         byId<HTMLInputElement>('arm-run').disabled = true;
@@ -240,13 +249,16 @@ function readRecipeInput(): ITubeRecipeInput {
 function renderPreview(preview: IPreviewResult | null): void {
     const summary = byId<HTMLDivElement>('summary');
     const warnings = byId<HTMLUListElement>('warnings');
+    const layerTableBody = byId<HTMLTableSectionElement>('layer-table-body');
 
     summary.innerHTML = '';
     warnings.innerHTML = '';
+    layerTableBody.innerHTML = '';
 
     if (!preview) {
         setPreviewControlsEnabled(false);
         byId<HTMLSpanElement>('empty-preview').style.display = 'block';
+        hidePreviewTooltip();
         clearPreviewCanvas();
         return;
     }
@@ -254,6 +266,7 @@ function renderPreview(preview: IPreviewResult | null): void {
     setPreviewControlsEnabled(true);
     byId<HTMLSpanElement>('empty-preview').style.display = 'none';
     fitPreview();
+    renderLayerTable(preview);
 
     addMetric(summary, 'Layers', preview.recipe.summary.requestedLayerCount.toString());
     addMetric(summary, 'Helical', preview.recipe.summary.helicalLayerCount.toString());
@@ -280,11 +293,16 @@ function bindCanvasEvents(): void {
         canvas.classList.add('dragging');
     });
     canvas.addEventListener('mouseup', () => endCanvasDrag());
-    canvas.addEventListener('mouseleave', () => endCanvasDrag());
+    canvas.addEventListener('mouseleave', () => {
+        endCanvasDrag();
+        hidePreviewTooltip();
+    });
     canvas.addEventListener('mousemove', (event) => {
         if (!previewView.dragging) {
+            updatePreviewTooltip(event);
             return;
         }
+        hidePreviewTooltip();
         previewView.offsetX += event.clientX - previewView.lastMouseX;
         previewView.offsetY += event.clientY - previewView.lastMouseY;
         previewView.lastMouseX = event.clientX;
@@ -358,8 +376,19 @@ function drawPreview(): void {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
+    const highlightedSegments: IPreviewSegment[] = [];
     for (const segment of currentPreview.plan.previewSegments) {
+        if (!visibleLayerIndexes.has(segment.layerIndex)) {
+            continue;
+        }
+        if (isLayerHighlighted(segment.layerIndex)) {
+            highlightedSegments.push(segment);
+            continue;
+        }
         drawSegment(ctx, segment, false);
+    }
+    for (const segment of highlightedSegments) {
+        drawSegment(ctx, segment, true);
     }
 }
 
@@ -485,7 +514,199 @@ function setPreviewControlsEnabled(enabled: boolean): void {
     byId<HTMLButtonElement>('actual-size-preview').disabled = !enabled;
     byId<HTMLButtonElement>('zoom-in-preview').disabled = !enabled;
     byId<HTMLButtonElement>('zoom-out-preview').disabled = !enabled;
+    byId<HTMLButtonElement>('show-all-layers').disabled = !enabled;
     byId<HTMLSelectElement>('color-mode').disabled = !enabled;
+}
+
+function resetLayerVisibility(preview: IPreviewResult): void {
+    visibleLayerIndexes.clear();
+    hoveredLayerIndex = null;
+    selectedLayerIndex = null;
+    for (let index = 0; index < preview.recipe.windParameters.layers.length; index++) {
+        visibleLayerIndexes.add(index);
+    }
+}
+
+function showAllLayers(): void {
+    if (!currentPreview) {
+        return;
+    }
+
+    for (let index = 0; index < currentPreview.recipe.windParameters.layers.length; index++) {
+        visibleLayerIndexes.add(index);
+    }
+    renderLayerTable(currentPreview);
+    drawPreview();
+}
+
+function renderLayerTable(preview: IPreviewResult): void {
+    const layerTableBody = byId<HTMLTableSectionElement>('layer-table-body');
+    layerTableBody.innerHTML = '';
+
+    preview.recipe.windParameters.layers.forEach((layer, index) => {
+        const row = document.createElement('tr');
+        if (selectedLayerIndex === index) {
+            row.classList.add('selected');
+        }
+        row.addEventListener('mouseenter', () => {
+            hoveredLayerIndex = index;
+            drawPreview();
+        });
+        row.addEventListener('mouseleave', () => {
+            hoveredLayerIndex = null;
+            drawPreview();
+        });
+        row.addEventListener('click', () => {
+            selectedLayerIndex = selectedLayerIndex === index ? null : index;
+            renderLayerTable(preview);
+            drawPreview();
+        });
+
+        const visibilityCell = document.createElement('td');
+        visibilityCell.className = 'visibility-cell';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = visibleLayerIndexes.has(index);
+        checkbox.addEventListener('click', (event) => event.stopPropagation());
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+                visibleLayerIndexes.add(index);
+            } else {
+                visibleLayerIndexes.delete(index);
+            }
+            drawPreview();
+        });
+        visibilityCell.appendChild(checkbox);
+
+        row.appendChild(visibilityCell);
+        row.appendChild(createTextCell(`${index + 1}: ${layer.windType}`));
+        row.appendChild(createTextCell(formatLayerParameters(layer)));
+        row.appendChild(createTextCell(formatLayerFacts(preview, layer, index)));
+        row.appendChild(createTextCell(formatLayerEstimate(preview, index)));
+        layerTableBody.appendChild(row);
+    });
+}
+
+function createTextCell(text: string): HTMLTableCellElement {
+    const cell = document.createElement('td');
+    cell.textContent = text;
+    return cell;
+}
+
+function formatLayerParameters(layer: TLayerParameters): string {
+    if (layer.windType === 'helical') {
+        return `angle ${layer.windAngle} deg, pattern ${layer.patternNumber}, skip ${layer.skipIndex}, lock ${layer.lockDegrees} deg, lead-in ${layer.leadInMM} mm, lead-out ${layer.leadOutDegrees} deg`;
+    }
+    if (layer.windType === 'hoop') {
+        return `terminal ${layer.terminal ? 'yes' : 'no'}`;
+    }
+    return `mandrel rotation ${layer.mandrelRotation} deg`;
+}
+
+function formatLayerFacts(preview: IPreviewResult, layer: TLayerParameters, index: number): string {
+    const summary = preview.plan.layers.find((layerSummary) => layerSummary.layerIndex === index + 1);
+    if (layer.windType === 'helical') {
+        const circuitCount = summary && summary.circuitCount ? summary.circuitCount : preview.recipe.summary.numCircuits;
+        return `${circuitCount} circuits, ${layer.patternNumber} starts, ${layer.skipInitialNearLock ? 'initial lock skipped' : 'initial lock included'}`;
+    }
+    if (layer.windType === 'hoop') {
+        return 'Outer hoop reinforcement; uses fixed 180 deg end locks';
+    }
+    return 'Offsets the next layer start angle';
+}
+
+function formatLayerEstimate(preview: IPreviewResult, index: number): string {
+    const summary = preview.plan.layers.find((layerSummary) => layerSummary.layerIndex === index + 1);
+    if (!summary) {
+        return 'not planned';
+    }
+    return `${Math.round(summary.timeS)} s, ${summary.towUseM.toFixed(2)} m tow`;
+}
+
+function isLayerHighlighted(layerIndex: number): boolean {
+    return layerIndex === selectedLayerIndex || layerIndex === hoveredLayerIndex;
+}
+
+function updatePreviewTooltip(event: MouseEvent): void {
+    if (!currentPreview) {
+        hidePreviewTooltip();
+        return;
+    }
+
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const segment = findNearestSegment(x, y);
+    if (!segment) {
+        hidePreviewTooltip();
+        return;
+    }
+
+    const tooltip = byId<HTMLDivElement>('preview-tooltip');
+    tooltip.style.display = 'block';
+    const tooltipX = Math.max(0, Math.min(rect.width - 270, x + 12));
+    const tooltipY = Math.max(0, Math.min(rect.height - 110, y + 12));
+    tooltip.style.transform = `translate(${tooltipX}px, ${tooltipY}px)`;
+    tooltip.textContent = formatSegmentTooltip(segment);
+}
+
+function hidePreviewTooltip(): void {
+    byId<HTMLDivElement>('preview-tooltip').style.display = 'none';
+}
+
+function findNearestSegment(screenX: number, screenY: number): IPreviewSegment | null {
+    if (!currentPreview) {
+        return null;
+    }
+
+    let nearestSegment: IPreviewSegment | null = null;
+    let nearestDistance = 10;
+    for (const segment of currentPreview.plan.previewSegments) {
+        if (!visibleLayerIndexes.has(segment.layerIndex)) {
+            continue;
+        }
+        for (const wrappedSegment of splitWrappedSegment(segment)) {
+            const distance = distanceToScreenSegment(
+                screenX,
+                screenY,
+                previewToScreenX(wrappedSegment.start.x),
+                previewToScreenY(wrappedSegment.start.y),
+                previewToScreenX(wrappedSegment.end.x),
+                previewToScreenY(wrappedSegment.end.y)
+            );
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestSegment = segment;
+            }
+        }
+    }
+    return nearestSegment;
+}
+
+function distanceToScreenSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    if (dx === 0 && dy === 0) {
+        return Math.hypot(px - x1, py - y1);
+    }
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function formatSegmentTooltip(segment: IPreviewSegment): string {
+    const parts = [
+        `Layer ${segment.layerIndex + 1} ${segment.layerType}`,
+        segment.groupKind
+    ];
+    if (typeof segment.circuitIndex === 'number') {
+        parts.push(`circuit ${segment.circuitIndex + 1}`);
+    }
+    if (segment.passDirection) {
+        parts.push(segment.passDirection);
+    }
+    parts.push(`(${segment.start.x.toFixed(1)}, ${mod360(segment.start.y).toFixed(1)}) -> (${segment.end.x.toFixed(1)}, ${mod360(segment.end.y).toFixed(1)})`);
+    return parts.join(' | ');
 }
 
 function renderMachineStatus(): void {

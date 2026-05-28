@@ -187,6 +187,14 @@ towSegmentLengthMM = sqrt(deltaCarriageMM^2 + mandrelArcLengthMM^2)
 
 Delivery-head movement is ignored for tow length because tilting the head does not by itself unspool tow.
 
+### Preview metadata
+
+`planWindDetailed` also returns `previewSegments` for the Electron preview. These segments are recorded by `WinderMachine` while the same moves are emitted as G-code, so the preview observes the same carriage and mandrel coordinates as the generated motion.
+
+Preview metadata does not change the generated G-code. It records only surface-relevant X/Y motion, including winding passes, locks, skips, and positioning moves. Pure delivery-head-only movement and `G92` coordinate resets are not represented as drawable preview segments.
+
+Each segment includes its start/end X/Y coordinates plus layer and grouping metadata, such as layer type, group kind, pattern index, circuit index, and pass direction when those values apply. The renderer uses this metadata for pan/zoom display, colour modes, layer visibility, highlighting, and tooltips.
+
 ## The `.wind` file
 
 A `.wind` file is JSON. The top-level structure is:

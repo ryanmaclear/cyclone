@@ -146,6 +146,11 @@
         grid-template-columns: minmax(420px, 1fr) 280px;
       }
 
+      .preview-section {
+        display: grid;
+        gap: 16px;
+      }
+
       .preview-pane {
         min-width: 0;
       }
@@ -178,6 +183,21 @@
         min-height: 300px;
         overflow: hidden;
         position: relative;
+      }
+
+      .preview-tooltip {
+        background: rgba(31, 37, 41, 0.92);
+        border-radius: 4px;
+        color: #ffffff;
+        display: none;
+        font-size: 12px;
+        left: 0;
+        max-width: 260px;
+        padding: 8px;
+        pointer-events: none;
+        position: absolute;
+        top: 0;
+        z-index: 2;
       }
 
       .plot-frame canvas {
@@ -255,6 +275,44 @@
         font-size: 13px;
         min-height: 18px;
         padding-top: 10px;
+      }
+
+      table {
+        border-collapse: collapse;
+        font-size: 13px;
+        width: 100%;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid #e3e7df;
+        padding: 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f1f3ee;
+        color: #3d464d;
+        font-size: 12px;
+      }
+
+      tbody tr {
+        cursor: pointer;
+      }
+
+      tbody tr:hover,
+      tbody tr.selected {
+        background: #eef6f3;
+      }
+
+      td.visibility-cell {
+        width: 54px;
+      }
+
+      td.visibility-cell input {
+        height: 16px;
+        width: 16px;
       }
     </style>
   </head>
@@ -370,32 +428,48 @@
 
       <section>
         <h2>Preview</h2>
-        <div class="panel-body preview-grid">
-          <div class="preview-pane">
-            <div class="preview-toolbar">
-              <button id="fit-preview" class="secondary" disabled>Fit</button>
-              <button id="actual-size-preview" class="secondary" disabled>1:1</button>
-              <button id="zoom-in-preview" class="secondary" disabled>Zoom In</button>
-              <button id="zoom-out-preview" class="secondary" disabled>Zoom Out</button>
-              <label>
-                Colour
-                <select id="color-mode" disabled>
-                  <option value="layer">Layer</option>
-                  <option value="circuit">Circuit</option>
-                  <option value="pass">Pass</option>
-                </select>
-              </label>
+        <div class="panel-body preview-section">
+          <div class="preview-grid">
+            <div class="preview-pane">
+              <div class="preview-toolbar">
+                <button id="fit-preview" class="secondary" disabled>Fit</button>
+                <button id="actual-size-preview" class="secondary" disabled>1:1</button>
+                <button id="zoom-in-preview" class="secondary" disabled>Zoom In</button>
+                <button id="zoom-out-preview" class="secondary" disabled>Zoom Out</button>
+                <button id="show-all-layers" class="secondary" disabled>Show All Layers</button>
+                <label>
+                  Colour
+                  <select id="color-mode" disabled>
+                    <option value="layer">Layer</option>
+                    <option value="circuit">Circuit</option>
+                    <option value="pass">Pass</option>
+                  </select>
+                </label>
+              </div>
+              <div class="plot-frame" id="plot-frame">
+                <canvas id="preview-canvas"></canvas>
+                <span class="empty-preview" id="empty-preview">No preview generated</span>
+                <div class="preview-tooltip" id="preview-tooltip"></div>
+              </div>
             </div>
-            <div class="plot-frame" id="plot-frame">
-              <canvas id="preview-canvas"></canvas>
-              <span class="empty-preview" id="empty-preview">No preview generated</span>
+            <div>
+              <div class="metric-grid" id="summary"></div>
+              <ul class="warnings" id="warnings"></ul>
+              <pre id="paths"></pre>
             </div>
           </div>
-          <div>
-            <div class="metric-grid" id="summary"></div>
-            <ul class="warnings" id="warnings"></ul>
-            <pre id="paths"></pre>
-          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Show</th>
+                <th>Layer</th>
+                <th>Generated Parameters</th>
+                <th>Derived Facts</th>
+                <th>Estimate</th>
+              </tr>
+            </thead>
+            <tbody id="layer-table-body"></tbody>
+          </table>
         </div>
       </section>
     </main>
