@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { ELayerType } from '../src/planner/types';
-import { planWindDetailed } from '../src/planner';
+import { planWind, planWindDetailed } from '../src/planner';
 import { plotGCode } from '../src/plotter';
 import {
     calculateHelicalCircuitCount,
@@ -61,5 +61,12 @@ const plannedRecipe = planWindDetailed(mediumRecipe.windParameters, false, false
 assert.ok(plannedRecipe.gcode.length > 0);
 assert.ok(plannedRecipe.totalTowUseM > 0);
 assert.ok(plotGCode(plannedRecipe.gcode));
+assert.deepStrictEqual(plannedRecipe.gcode, planWind(mediumRecipe.windParameters, false));
+assert.ok(plannedRecipe.previewSegments.length > 0);
+assert.ok(plannedRecipe.previewSegments.every((segment) => segment.start.x !== segment.end.x || segment.start.y !== segment.end.y));
+assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'helical-pass' && segment.passDirection === 'there'));
+assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'helical-pass' && segment.passDirection === 'back'));
+assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'lock'));
+assert.ok(plannedRecipe.previewSegments.some((segment) => segment.layerIndex === 3 && segment.groupKind === 'hoop-pass'));
 
 console.log('Recipe tests passed');

@@ -1,11 +1,33 @@
 type IMarlinStatus = import('./app-types').IMarlinStatus;
 type IPreviewResult = import('./app-types').IPreviewResult;
+type IPreviewSegment = import('./planner/types').IPreviewSegment;
 type ISaveArtifactsResult = import('./app-types').ISaveArtifactsResult;
 type ISerialPortOption = import('./app-types').ISerialPortOption;
 type ITubeRecipeInput = import('./recipe').ITubeRecipeInput;
 type TStrengthPreset = import('./recipe').TStrengthPreset;
 
+type TColorMode = 'layer' | 'circuit' | 'pass';
+
+interface IPreviewView {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    dragging: boolean;
+    lastMouseX: number;
+    lastMouseY: number;
+    colorMode: TColorMode;
+}
+
 let currentPreview: IPreviewResult | null = null;
+const previewView: IPreviewView = {
+    scale: 1,
+    offsetX: 20,
+    offsetY: 20,
+    dragging: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
+    colorMode: 'layer'
+};
 let currentStatus: IMarlinStatus = {
     connected: false,
     paused: false,
@@ -52,6 +74,16 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('resume').addEventListener('click', resumeMachine);
     byId<HTMLButtonElement>('clear-queue').addEventListener('click', clearQueue);
     byId<HTMLInputElement>('arm-run').addEventListener('change', updateRunControls);
+    byId<HTMLButtonElement>('fit-preview').addEventListener('click', fitPreview);
+    byId<HTMLButtonElement>('actual-size-preview').addEventListener('click', actualSizePreview);
+    byId<HTMLButtonElement>('zoom-in-preview').addEventListener('click', () => zoomPreview(1.25));
+    byId<HTMLButtonElement>('zoom-out-preview').addEventListener('click', () => zoomPreview(0.8));
+    byId<HTMLSelectElement>('color-mode').addEventListener('change', () => {
+        previewView.colorMode = byId<HTMLSelectElement>('color-mode').value as TColorMode;
+        drawPreview();
+    });
+    bindCanvasEvents();
+    window.addEventListener('resize', drawPreview);
 }
 
 async function generatePreview(): Promise<void> {
@@ -206,28 +238,22 @@ function readRecipeInput(): ITubeRecipeInput {
 }
 
 function renderPreview(preview: IPreviewResult | null): void {
-    const plotFrame = byId<HTMLDivElement>('plot-frame');
     const summary = byId<HTMLDivElement>('summary');
     const warnings = byId<HTMLUListElement>('warnings');
 
-    plotFrame.innerHTML = '';
     summary.innerHTML = '';
     warnings.innerHTML = '';
 
     if (!preview) {
-        const empty = document.createElement('span');
-        empty.className = 'empty-preview';
-        empty.textContent = 'No preview generated';
-        plotFrame.appendChild(empty);
+        setPreviewControlsEnabled(false);
+        byId<HTMLSpanElement>('empty-preview').style.display = 'block';
+        clearPreviewCanvas();
         return;
     }
 
-    if (preview.plotDataUrl) {
-        const image = document.createElement('img');
-        image.src = preview.plotDataUrl;
-        image.alt = 'Winding plot preview';
-        plotFrame.appendChild(image);
-    }
+    setPreviewControlsEnabled(true);
+    byId<HTMLSpanElement>('empty-preview').style.display = 'none';
+    fitPreview();
 
     addMetric(summary, 'Layers', preview.recipe.summary.requestedLayerCount.toString());
     addMetric(summary, 'Helical', preview.recipe.summary.helicalLayerCount.toString());
@@ -243,6 +269,223 @@ function renderPreview(preview: IPreviewResult | null): void {
         item.textContent = warning;
         warnings.appendChild(item);
     }
+}
+
+function bindCanvasEvents(): void {
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    canvas.addEventListener('mousedown', (event) => {
+        previewView.dragging = true;
+        previewView.lastMouseX = event.clientX;
+        previewView.lastMouseY = event.clientY;
+        canvas.classList.add('dragging');
+    });
+    canvas.addEventListener('mouseup', () => endCanvasDrag());
+    canvas.addEventListener('mouseleave', () => endCanvasDrag());
+    canvas.addEventListener('mousemove', (event) => {
+        if (!previewView.dragging) {
+            return;
+        }
+        previewView.offsetX += event.clientX - previewView.lastMouseX;
+        previewView.offsetY += event.clientY - previewView.lastMouseY;
+        previewView.lastMouseX = event.clientX;
+        previewView.lastMouseY = event.clientY;
+        drawPreview();
+    });
+    canvas.addEventListener('wheel', (event) => {
+        if (!currentPreview) {
+            return;
+        }
+        event.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const factor = event.deltaY < 0 ? 1.15 : 0.87;
+        zoomPreview(factor, event.clientX - rect.left, event.clientY - rect.top);
+    }, {passive: false});
+}
+
+function endCanvasDrag(): void {
+    previewView.dragging = false;
+    byId<HTMLCanvasElement>('preview-canvas').classList.remove('dragging');
+}
+
+function fitPreview(): void {
+    if (!currentPreview) {
+        return;
+    }
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const windLength = currentPreview.recipe.windParameters.mandrelParameters.windLength;
+    const padding = 28;
+    previewView.scale = Math.max(0.1, Math.min((rect.width - padding * 2) / windLength, (rect.height - padding * 2) / 360));
+    previewView.offsetX = (rect.width - windLength * previewView.scale) / 2;
+    previewView.offsetY = (rect.height - 360 * previewView.scale) / 2;
+    drawPreview();
+}
+
+function actualSizePreview(): void {
+    previewView.scale = 1;
+    previewView.offsetX = 24;
+    previewView.offsetY = 24;
+    drawPreview();
+}
+
+function zoomPreview(factor: number, originX?: number, originY?: number): void {
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const x = typeof originX === 'number' ? originX : rect.width / 2;
+    const y = typeof originY === 'number' ? originY : rect.height / 2;
+    const worldX = (x - previewView.offsetX) / previewView.scale;
+    const worldY = (y - previewView.offsetY) / previewView.scale;
+    previewView.scale = Math.max(0.05, Math.min(40, previewView.scale * factor));
+    previewView.offsetX = x - worldX * previewView.scale;
+    previewView.offsetY = y - worldY * previewView.scale;
+    drawPreview();
+}
+
+function drawPreview(): void {
+    if (!currentPreview) {
+        clearPreviewCanvas();
+        return;
+    }
+
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    const ctx = resizeCanvas(canvas);
+    const rect = canvas.getBoundingClientRect();
+
+    ctx.fillStyle = '#fbfbf8';
+    ctx.fillRect(0, 0, rect.width, rect.height);
+    drawPreviewGrid(ctx, rect.width, rect.height);
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (const segment of currentPreview.plan.previewSegments) {
+        drawSegment(ctx, segment, false);
+    }
+}
+
+function drawPreviewGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    const windLength = currentPreview ? currentPreview.recipe.windParameters.mandrelParameters.windLength : 0;
+    ctx.strokeStyle = '#dde3d8';
+    ctx.lineWidth = 1;
+    for (const y of [0, 90, 180, 270, 360]) {
+        const screenY = previewToScreenY(y);
+        ctx.beginPath();
+        ctx.moveTo(previewToScreenX(0), screenY);
+        ctx.lineTo(previewToScreenX(windLength), screenY);
+        ctx.stroke();
+    }
+    ctx.strokeStyle = '#c6cec1';
+    ctx.strokeRect(previewToScreenX(0), previewToScreenY(0), windLength * previewView.scale, 360 * previewView.scale);
+    ctx.fillStyle = '#68727a';
+    ctx.font = '12px Arial';
+    ctx.fillText('0 deg', Math.min(width - 42, previewToScreenX(0) + 6), Math.max(14, previewToScreenY(0) + 14));
+    ctx.fillText('360 deg', Math.min(width - 54, previewToScreenX(0) + 6), Math.min(height - 6, previewToScreenY(360) - 6));
+}
+
+function drawSegment(ctx: CanvasRenderingContext2D, segment: IPreviewSegment, emphasized: boolean): void {
+    ctx.strokeStyle = getSegmentColor(segment);
+    ctx.globalAlpha = emphasized ? 1 : 0.62;
+    ctx.lineWidth = Math.max(1.25, Math.min(8, previewView.scale * 0.9));
+
+    for (const wrappedSegment of splitWrappedSegment(segment)) {
+        ctx.beginPath();
+        ctx.moveTo(previewToScreenX(wrappedSegment.start.x), previewToScreenY(wrappedSegment.start.y));
+        ctx.lineTo(previewToScreenX(wrappedSegment.end.x), previewToScreenY(wrappedSegment.end.y));
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+function splitWrappedSegment(segment: IPreviewSegment): Array<{start: {x: number; y: number}; end: {x: number; y: number}}> {
+    const result: Array<{start: {x: number; y: number}; end: {x: number; y: number}}> = [];
+    let start = {...segment.start};
+    const end = {...segment.end};
+    const direction = end.y >= start.y ? 1 : -1;
+    let guard = 0;
+
+    while (Math.floor(start.y / 360) !== Math.floor(end.y / 360) && guard < 1000) {
+        let boundary = direction > 0 ? Math.ceil(start.y / 360) * 360 : Math.floor(start.y / 360) * 360;
+        if (boundary === start.y) {
+            boundary += direction * 360;
+        }
+        const t = (boundary - start.y) / (end.y - start.y);
+        const boundaryX = start.x + (end.x - start.x) * t;
+        result.push({
+            start: {x: start.x, y: mod360(start.y)},
+            end: {x: boundaryX, y: direction > 0 ? 360 : 0}
+        });
+        start = {
+            x: boundaryX,
+            y: boundary + direction * 0.001
+        };
+        guard += 1;
+    }
+
+    result.push({
+        start: {x: start.x, y: mod360(start.y)},
+        end: {x: end.x, y: mod360(end.y)}
+    });
+    return result;
+}
+
+function getSegmentColor(segment: IPreviewSegment): string {
+    const palette = ['#1f77b4', '#d1495b', '#2e8b57', '#8a5b28', '#6f4aa8', '#2f6f73', '#c36f09', '#5c677d'];
+    if (previewView.colorMode === 'circuit') {
+        return palette[(segment.circuitIndex || 0) % palette.length];
+    }
+    if (previewView.colorMode === 'pass') {
+        if (segment.groupKind === 'lock') {
+            return '#6f421c';
+        }
+        return segment.passDirection === 'back' ? '#d1495b' : '#2f6f73';
+    }
+    return palette[segment.layerIndex % palette.length];
+}
+
+function clearPreviewCanvas(): void {
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    const ctx = resizeCanvas(canvas);
+    const rect = canvas.getBoundingClientRect();
+    ctx.fillStyle = '#fbfbf8';
+    ctx.fillRect(0, 0, rect.width, rect.height);
+}
+
+function resizeCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+    const rect = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(1, Math.floor(rect.width * ratio));
+    const height = Math.max(1, Math.floor(rect.height * ratio));
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        throw new Error('Could not create preview canvas context.');
+    }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return ctx;
+}
+
+function previewToScreenX(x: number): number {
+    return x * previewView.scale + previewView.offsetX;
+}
+
+function previewToScreenY(y: number): number {
+    return y * previewView.scale + previewView.offsetY;
+}
+
+function mod360(value: number): number {
+    const result = value % 360;
+    return result < 0 ? result + 360 : result;
+}
+
+function setPreviewControlsEnabled(enabled: boolean): void {
+    byId<HTMLButtonElement>('fit-preview').disabled = !enabled;
+    byId<HTMLButtonElement>('actual-size-preview').disabled = !enabled;
+    byId<HTMLButtonElement>('zoom-in-preview').disabled = !enabled;
+    byId<HTMLButtonElement>('zoom-out-preview').disabled = !enabled;
+    byId<HTMLSelectElement>('color-mode').disabled = !enabled;
 }
 
 function renderMachineStatus(): void {

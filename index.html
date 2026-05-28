@@ -146,19 +146,49 @@
         grid-template-columns: minmax(420px, 1fr) 280px;
       }
 
+      .preview-pane {
+        min-width: 0;
+      }
+
+      .preview-toolbar {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .preview-toolbar label {
+        align-items: center;
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+      }
+
+      .preview-toolbar select {
+        width: 130px;
+      }
+
       .plot-frame {
         align-items: center;
         background: #fbfbf8;
         border: 1px solid #d8ddd2;
         display: flex;
+        height: 430px;
         min-height: 300px;
-        overflow: auto;
+        overflow: hidden;
+        position: relative;
       }
 
-      .plot-frame img {
+      .plot-frame canvas {
+        cursor: grab;
         display: block;
-        image-rendering: auto;
-        max-width: 100%;
+        height: 100%;
+        width: 100%;
+      }
+
+      .plot-frame canvas.dragging {
+        cursor: grabbing;
       }
 
       .empty-preview {
@@ -341,8 +371,25 @@
       <section>
         <h2>Preview</h2>
         <div class="panel-body preview-grid">
-          <div class="plot-frame" id="plot-frame">
-            <span class="empty-preview">No preview generated</span>
+          <div class="preview-pane">
+            <div class="preview-toolbar">
+              <button id="fit-preview" class="secondary" disabled>Fit</button>
+              <button id="actual-size-preview" class="secondary" disabled>1:1</button>
+              <button id="zoom-in-preview" class="secondary" disabled>Zoom In</button>
+              <button id="zoom-out-preview" class="secondary" disabled>Zoom Out</button>
+              <label>
+                Colour
+                <select id="color-mode" disabled>
+                  <option value="layer">Layer</option>
+                  <option value="circuit">Circuit</option>
+                  <option value="pass">Pass</option>
+                </select>
+              </label>
+            </div>
+            <div class="plot-frame" id="plot-frame">
+              <canvas id="preview-canvas"></canvas>
+              <span class="empty-preview" id="empty-preview">No preview generated</span>
+            </div>
           </div>
           <div>
             <div class="metric-grid" id="summary"></div>

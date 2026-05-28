@@ -1,5 +1,6 @@
 import type { IWindParameters,
     ILayerParameters,
+    IPreviewSegment,
     THelicalLayer,
     THoopLayer,
     TSkipLayer
@@ -14,6 +15,8 @@ export interface IPlannedLayerSummary {
     layerType: string;
     timeS: number;
     towUseM: number;
+    circuitCount?: number;
+    patternNumber?: number;
 }
 
 export interface IPlanWindResult {
@@ -21,6 +24,7 @@ export interface IPlanWindResult {
     totalTimeS: number;
     totalTowUseM: number;
     layers: IPlannedLayerSummary[];
+    previewSegments: IPreviewSegment[];
 }
 
 export function planWind(windingParameters: IWindParameters, verboseOutput = false): string[] {
@@ -62,7 +66,8 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
                 planHoopLayer(machine, {
                     parameters: layer,
                     mandrelParameters: windingParameters.mandrelParameters,
-                    towParameters: windingParameters.towParameters
+                    towParameters: windingParameters.towParameters,
+                    layerIndex
                 });
                 encounteredTerminalLayer = encounteredTerminalLayer || layer.terminal;
                 break;
@@ -71,7 +76,8 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
                 planHelicalLayer(machine, {
                     parameters: layer,
                     mandrelParameters: windingParameters.mandrelParameters,
-                    towParameters: windingParameters.towParameters
+                    towParameters: windingParameters.towParameters,
+                    layerIndex
                 });
                 break;
 
@@ -79,7 +85,8 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
                 planSkipLayer(machine, {
                     parameters: layer,
                     mandrelParameters: windingParameters.mandrelParameters,
-                    towParameters: windingParameters.towParameters
+                    towParameters: windingParameters.towParameters,
+                    layerIndex
                 })
         }
 
@@ -97,7 +104,9 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
             layerIndex,
             layerType: layer.windType,
             timeS: layerTimeS,
-            towUseM: layerTowUseM
+            towUseM: layerTowUseM,
+            circuitCount: layer.windType === ELayerType.HELICAL ? getHelicalCircuitCount(windingParameters.mandrelParameters.diameter, windingParameters.towParameters.width, layer.windAngle) : undefined,
+            patternNumber: layer.windType === ELayerType.HELICAL ? layer.patternNumber : undefined
         });
 
         cumulativeTimeS = machine.getGCodeTimeS();
@@ -119,7 +128,8 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
         gcode: machine.getGCode(),
         totalTimeS: cumulativeTimeS,
         totalTowUseM: cumulativeTowUseM,
-        layers: layerSummaries
+        layers: layerSummaries,
+        previewSegments: machine.getPreviewSegments()
     };
 }
 
@@ -130,6 +140,7 @@ export function planHoopLayer(machine: WinderMachine, layerParameters: ILayerPar
     // For now, assume overlap factor of 1.0
 
     const lockDegrees = 180;
+    const layerIndex = layerParameters.layerIndex || 0;
 
      // Used for the delivery head angle
     const windAngle = 90 - radToDeg(Math.atan(layerParameters.mandrelParameters.diameter / layerParameters.towParameters.width));
@@ -140,6 +151,11 @@ export function planHoopLayer(machine: WinderMachine, layerParameters: ILayerPar
     const nearLockPositionDegrees = nearMandrelPositionDegrees + lockDegrees;
 
     // Do a small near lock
+    machine.setPreviewContext({
+        layerIndex,
+        layerType: ELayerType.HOOP,
+        groupKind: 'lock'
+    });
     machine.move({
         [ECoordinateAxes.CARRIAGE]: 0,
         [ECoordinateAxes.MANDREL]: lockDegrees,
@@ -150,11 +166,22 @@ export function planHoopLayer(machine: WinderMachine, layerParameters: ILayerPar
         [ECoordinateAxes.DELIVERY_HEAD]: -windAngle
     });
     // Wind to the far end of the mandrel
+    machine.setPreviewContext({
+        layerIndex,
+        layerType: ELayerType.HOOP,
+        groupKind: 'hoop-pass',
+        passDirection: 'there'
+    });
     machine.move({
         [ECoordinateAxes.CARRIAGE]: layerParameters.mandrelParameters.windLength,
         [ECoordinateAxes.MANDREL]: farMandrelPositionDegrees
     });
     // Do a small far lock
+    machine.setPreviewContext({
+        layerIndex,
+        layerType: ELayerType.HOOP,
+        groupKind: 'lock'
+    });
     machine.move({
         [ECoordinateAxes.MANDREL]: farLockPositionDegrees,
         [ECoordinateAxes.DELIVERY_HEAD]: 0
@@ -168,11 +195,22 @@ export function planHoopLayer(machine: WinderMachine, layerParameters: ILayerPar
         [ECoordinateAxes.DELIVERY_HEAD]: windAngle,
     });
     // Wind to the near end of the mandrel
+    machine.setPreviewContext({
+        layerIndex,
+        layerType: ELayerType.HOOP,
+        groupKind: 'hoop-pass',
+        passDirection: 'back'
+    });
     machine.move({
         [ECoordinateAxes.CARRIAGE]: 0,
         [ECoordinateAxes.MANDREL]: nearMandrelPositionDegrees
     });
     // Do a small near lock
+    machine.setPreviewContext({
+        layerIndex,
+        layerType: ELayerType.HOOP,
+        groupKind: 'lock'
+    });
     machine.move({
         [ECoordinateAxes.MANDREL]: nearLockPositionDegrees,
         [ECoordinateAxes.DELIVERY_HEAD]: 0
@@ -183,6 +221,7 @@ export function planHoopLayer(machine: WinderMachine, layerParameters: ILayerPar
 export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayerParameters<THelicalLayer>): void {
     // TODO: move to config values or remove?
     const deliveryHeadPassStartAngle = -10;
+    const layerIndex = layerParameters.layerIndex || 0;
 
     // The portion of each lock that the delivery head rotates back to level during
     const leadOutDegrees = layerParameters.parameters.leadOutDegrees;
@@ -238,6 +277,11 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
     }
 
     if (typeof layerParameters.parameters.skipInitialNearLock === 'undefined' || !layerParameters.parameters.skipInitialNearLock) {
+        machine.setPreviewContext({
+            layerIndex,
+            layerType: ELayerType.HELICAL,
+            groupKind: 'lock'
+        });
         machine.move({
             [ECoordinateAxes.CARRIAGE]: 0,
             [ECoordinateAxes.MANDREL]: lockDegrees,
@@ -256,7 +300,16 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
             machine.insertComment(`\tPattern: ${patternIndex + 1}/${numberOfPatterns} Circuit: ${inPatternIndex + 1}/${patternNumber}`);
 
             for (const passParams of passParameters) {
+                const passDirection = passParams.fullPassEndMM === 0 ? 'back' : 'there';
                 // Wind to the start point for this pass, while tilting the delivery head to clean up from last pass
+                machine.setPreviewContext({
+                    layerIndex,
+                    layerType: ELayerType.HELICAL,
+                    groupKind: 'positioning',
+                    patternIndex,
+                    circuitIndex: inPatternIndex,
+                    passDirection
+                });
                 machine.move({
                     [ECoordinateAxes.MANDREL]: mandrelPositionDegrees,
                     [ECoordinateAxes.DELIVERY_HEAD]: 0
@@ -269,6 +322,14 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
 
                 // Wind through the pass lead in, tilting the delivery head into final position
                 mandrelPositionDegrees += leadInDegrees;
+                machine.setPreviewContext({
+                    layerIndex,
+                    layerType: ELayerType.HELICAL,
+                    groupKind: 'helical-pass',
+                    patternIndex,
+                    circuitIndex: inPatternIndex,
+                    passDirection
+                });
                 machine.move({
                     [ECoordinateAxes.CARRIAGE]: passParams.leadInEndMM,
                     [ECoordinateAxes.MANDREL]: mandrelPositionDegrees,
@@ -277,6 +338,14 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
 
                 // Wind to the end of the pass
                 mandrelPositionDegrees += mainPassDegrees;
+                machine.setPreviewContext({
+                    layerIndex,
+                    layerType: ELayerType.HELICAL,
+                    groupKind: 'helical-pass',
+                    patternIndex,
+                    circuitIndex: inPatternIndex,
+                    passDirection
+                });
                 machine.move({
                     [ECoordinateAxes.CARRIAGE]: passParams.fullPassEndMM,
                     [ECoordinateAxes.MANDREL]: mandrelPositionDegrees
@@ -284,6 +353,14 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
 
                 // Wind through the pass lead in, tilting the delivery head into final position
                 mandrelPositionDegrees += leadOutDegrees;
+                machine.setPreviewContext({
+                    layerIndex,
+                    layerType: ELayerType.HELICAL,
+                    groupKind: 'lock',
+                    patternIndex,
+                    circuitIndex: inPatternIndex,
+                    passDirection
+                });
                 machine.move({
                     [ECoordinateAxes.MANDREL]: mandrelPositionDegrees,
                     [ECoordinateAxes.DELIVERY_HEAD]: passParams.deliveryHeadSign * deliveryHeadPassStartAngle,
@@ -301,6 +378,11 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
     }
 
     mandrelPositionDegrees += lockDegrees;
+    machine.setPreviewContext({
+        layerIndex,
+        layerType: ELayerType.HELICAL,
+        groupKind: 'lock'
+    });
     machine.move({
         [ECoordinateAxes.MANDREL]: mandrelPositionDegrees,
         [ECoordinateAxes.DELIVERY_HEAD]: 0,
@@ -312,6 +394,11 @@ export function planHelicalLayer(machine: WinderMachine, layerParameters: ILayer
 
 export function planSkipLayer(machine: WinderMachine, layerParameters: ILayerParameters<TSkipLayer>): void {
     // Advance the mandrel by the specified number of degrees
+    machine.setPreviewContext({
+        layerIndex: layerParameters.layerIndex || 0,
+        layerType: ELayerType.SKIP,
+        groupKind: 'skip'
+    });
     machine.move({
         [ECoordinateAxes.CARRIAGE]: 0,
         [ECoordinateAxes.MANDREL]: layerParameters.parameters.mandrelRotation,
@@ -321,4 +408,10 @@ export function planSkipLayer(machine: WinderMachine, layerParameters: ILayerPar
     machine.setPosition({
         [ECoordinateAxes.MANDREL]: 0,
     });
+}
+
+export function getHelicalCircuitCount(diameter: number, towWidth: number, windAngle: number): number {
+    const mandrelCircumference = Math.PI * diameter;
+    const towArcLength = towWidth / Math.cos(degToRad(windAngle));
+    return Math.ceil(mandrelCircumference / towArcLength);
 }

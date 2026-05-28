@@ -49,6 +49,7 @@ export interface ILayerParameters<TLayerSpecificParameters extends TLayerParamet
     parameters: TLayerSpecificParameters;
     mandrelParameters: IMandrelParameters;
     towParameters: ITowParameters;
+    layerIndex?: number;
 }
 
 /**
@@ -83,4 +84,27 @@ export const AxisLookup: Record<keyof TCoordinateAxes, string> = {
     [ECoordinateAxes.CARRIAGE]: 'X',
     [ECoordinateAxes.MANDREL]: 'Y',
     [ECoordinateAxes.DELIVERY_HEAD]: 'Z'
+}
+
+export type TPreviewGroupKind = 'helical-pass' | 'hoop-pass' | 'lock' | 'skip' | 'positioning';
+
+export type TPreviewPassDirection = 'there' | 'back';
+
+export interface IPreviewPoint {
+    x: number;
+    y: number;
+}
+
+export interface IPreviewContext {
+    layerIndex: number;
+    layerType: ELayerType;
+    groupKind: TPreviewGroupKind;
+    patternIndex?: number;
+    circuitIndex?: number;
+    passDirection?: TPreviewPassDirection;
+}
+
+export interface IPreviewSegment extends IPreviewContext {
+    start: IPreviewPoint;
+    end: IPreviewPoint;
 }

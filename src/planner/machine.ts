@@ -1,4 +1,4 @@
-import { TCoordinate, ECoordinateAxes, AxisLookup, TCoordinateAxes } from './types';
+import { TCoordinate, ECoordinateAxes, AxisLookup, TCoordinateAxes, IPreviewContext, IPreviewSegment } from './types';
 import { stripPrecision } from '../helpers';
 import { interpolateCoordinates, serializeCoordinate } from './helpers';
 
@@ -7,6 +7,8 @@ export class WinderMachine {
 
     private verboseOutput: boolean;
     private gcode: string[] = [];
+    private previewSegments: IPreviewSegment[] = [];
+    private previewContext: IPreviewContext | null = null;
 
     // Profiler state
     private feedRateMMpM = 0;
@@ -23,6 +25,14 @@ export class WinderMachine {
 
     public getGCode(): string[] {
         return this.gcode;
+    }
+
+    public getPreviewSegments(): IPreviewSegment[] {
+        return this.previewSegments;
+    }
+
+    public setPreviewContext(previewContext: IPreviewContext): void {
+        this.previewContext = previewContext;
     }
 
     public addRawGCode(command: string): void {
@@ -103,6 +113,10 @@ export class WinderMachine {
 
     // We have to split up moves into many tiny chunks, because marlin only allows pausing after a command completes
     private moveSegment(position: TCoordinate): void {
+        const startPosition = {...this.lastPosition};
+        const completeEndPosition = {...this.lastPosition, ...position};
+        this.recordPreviewSegment(startPosition, completeEndPosition);
+
         // Distance of the move in "Marlin Units", used for time profiling
         //  Treats mandrel degrees as MM and accounts for delivery head movements, because that's what marlin does
         let totalDistanceMarlinUnitsSq = 0;
@@ -149,6 +163,33 @@ export class WinderMachine {
         this.totalTowLengthMM += towLengthMMSq ** 0.5;
 
         this.gcode.push(command);
+    }
+
+    private recordPreviewSegment(startPosition: TCoordinateAxes, endPosition: TCoordinateAxes): void {
+        if (!this.previewContext) {
+            return;
+        }
+
+        const startX = startPosition[ECoordinateAxes.CARRIAGE];
+        const startY = startPosition[ECoordinateAxes.MANDREL];
+        const endX = endPosition[ECoordinateAxes.CARRIAGE];
+        const endY = endPosition[ECoordinateAxes.MANDREL];
+
+        if (startX === endX && startY === endY) {
+            return;
+        }
+
+        this.previewSegments.push({
+            ...this.previewContext,
+            start: {
+                x: startX,
+                y: startY
+            },
+            end: {
+                x: endX,
+                y: endY
+            }
+        });
     }
 
 }
