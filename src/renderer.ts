@@ -10,6 +10,12 @@ type TStrengthPreset = import('./recipe').TStrengthPreset;
 
 type TColorMode = 'layer' | 'circuit' | 'pass';
 
+interface IWrappedPreviewSegment {
+    source: IPreviewSegment;
+    start: {x: number; y: number};
+    end: {x: number; y: number};
+}
+
 interface IPreviewView {
     scale: number;
     offsetX: number;
@@ -31,6 +37,11 @@ const expandedLayerIndexes = new Set<number>();
 let hoveredLayerIndex: number | null = null;
 let selectedLayerIndex: number | null = null;
 let selectedCircuit: ISelectedCircuit | null = null;
+let previewDrawFrame: number | null = null;
+let wrappedPreviewSegments: IWrappedPreviewSegment[] = [];
+let layerCanvasCacheKey = '';
+const wrappedSegmentsBySegment = new WeakMap<IPreviewSegment, IWrappedPreviewSegment[]>();
+const layerCanvasCache = new Map<number, HTMLCanvasElement>();
 const previewView: IPreviewView = {
     scale: 1,
     offsetX: 20,
@@ -95,11 +106,11 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('show-all-layers').addEventListener('click', showAllLayers);
     byId<HTMLSelectElement>('color-mode').addEventListener('change', () => {
         previewView.colorMode = byId<HTMLSelectElement>('color-mode').value as TColorMode;
-        drawPreview();
+        requestPreviewDraw(true);
     });
     bindCanvasEvents();
     updateLayerModeControls();
-    window.addEventListener('resize', drawPreview);
+    window.addEventListener('resize', () => requestPreviewDraw(true));
 }
 
 async function generatePreview(): Promise<void> {
@@ -111,6 +122,7 @@ async function generatePreview(): Promise<void> {
     try {
         const preview = await window.cyclone.generatePreview({ recipeInput: readRecipeInput() });
         currentPreview = preview;
+        prepareWrappedPreviewSegments(preview);
         resetLayerVisibility(preview);
         renderPreview(preview);
         byId<HTMLButtonElement>('save').disabled = false;
@@ -119,6 +131,8 @@ async function generatePreview(): Promise<void> {
         setRecipeMessage('Preview generated.');
     } catch (error) {
         currentPreview = null;
+        prepareWrappedPreviewSegments(null);
+        invalidatePreviewLayerCache();
         visibleLayerIndexes.clear();
         expandedLayerIndexes.clear();
         hoveredLayerIndex = null;
@@ -342,7 +356,7 @@ function bindCanvasEvents(): void {
         previewView.offsetY += event.clientY - previewView.lastMouseY;
         previewView.lastMouseX = event.clientX;
         previewView.lastMouseY = event.clientY;
-        drawPreview();
+        requestPreviewDraw(true);
     });
     canvas.addEventListener('wheel', (event) => {
         if (!currentPreview) {
@@ -374,14 +388,14 @@ function fitPreview(): void {
     previewView.scale = Math.max(0.1, Math.min((rect.width - paddingLeft - paddingRight) / windLength, (rect.height - paddingTop - paddingBottom) / 360));
     previewView.offsetX = paddingLeft + ((rect.width - paddingLeft - paddingRight) - windLength * previewView.scale) / 2;
     previewView.offsetY = paddingTop + ((rect.height - paddingTop - paddingBottom) - 360 * previewView.scale) / 2;
-    drawPreview();
+    requestPreviewDraw(true);
 }
 
 function actualSizePreview(): void {
     previewView.scale = 1;
     previewView.offsetX = 72;
     previewView.offsetY = 24;
-    drawPreview();
+    requestPreviewDraw(true);
 }
 
 function zoomPreview(factor: number, originX?: number, originY?: number): void {
@@ -394,7 +408,20 @@ function zoomPreview(factor: number, originX?: number, originY?: number): void {
     previewView.scale = Math.max(0.05, Math.min(40, previewView.scale * factor));
     previewView.offsetX = x - worldX * previewView.scale;
     previewView.offsetY = y - worldY * previewView.scale;
-    drawPreview();
+    requestPreviewDraw(true);
+}
+
+function requestPreviewDraw(invalidateCache = false): void {
+    if (invalidateCache) {
+        invalidatePreviewLayerCache();
+    }
+    if (previewDrawFrame !== null) {
+        return;
+    }
+    previewDrawFrame = window.requestAnimationFrame(() => {
+        previewDrawFrame = null;
+        drawPreview();
+    });
 }
 
 function drawPreview(): void {
@@ -413,21 +440,90 @@ function drawPreview(): void {
 
     ctx.lineCap = 'butt';
     ctx.lineJoin = 'round';
+    ensureLayerCanvasCache(canvas, rect);
 
     const highlightedSegments: IPreviewSegment[] = [];
-    for (const segment of currentPreview.plan.previewSegments) {
-        if (!visibleLayerIndexes.has(segment.layerIndex)) {
+    const highlightedSegmentSet = new Set<IPreviewSegment>();
+    visibleLayerIndexes.forEach((layerIndex) => {
+        const layerCanvas = layerCanvasCache.get(layerIndex);
+        if (layerCanvas) {
+            ctx.globalAlpha = 1;
+            ctx.drawImage(layerCanvas, 0, 0, rect.width, rect.height);
+        }
+    });
+
+    for (const wrappedSegment of wrappedPreviewSegments) {
+        const segment = wrappedSegment.source;
+        if (!visibleLayerIndexes.has(segment.layerIndex) || !shouldOverlaySegment(segment)) {
             continue;
         }
-        if (isSegmentSelectedCircuit(segment) || isLayerHighlighted(segment.layerIndex)) {
+        if (!highlightedSegmentSet.has(segment)) {
+            highlightedSegmentSet.add(segment);
             highlightedSegments.push(segment);
-            continue;
         }
-        drawSegment(ctx, segment, false);
     }
+
     for (const segment of highlightedSegments) {
         drawSegment(ctx, segment, true);
     }
+}
+
+function ensureLayerCanvasCache(canvas: HTMLCanvasElement, rect: DOMRect): void {
+    const cacheKey = getLayerCanvasCacheKey(canvas);
+    if (cacheKey !== layerCanvasCacheKey) {
+        layerCanvasCacheKey = cacheKey;
+        layerCanvasCache.clear();
+    }
+
+    if (!currentPreview) {
+        return;
+    }
+
+    for (let index = 0; index < currentPreview.recipe.windParameters.layers.length; index++) {
+        if (!layerCanvasCache.has(index)) {
+            layerCanvasCache.set(index, renderLayerCanvas(index, rect));
+        }
+    }
+}
+
+function renderLayerCanvas(layerIndex: number, rect: DOMRect): HTMLCanvasElement {
+    const ratio = window.devicePixelRatio || 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(rect.width * ratio));
+    canvas.height = Math.max(1, Math.floor(rect.height * ratio));
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        throw new Error('Could not create preview layer cache.');
+    }
+
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+
+    for (const wrappedSegment of wrappedPreviewSegments) {
+        if (wrappedSegment.source.layerIndex === layerIndex) {
+            drawWrappedSegment(ctx, wrappedSegment, false);
+        }
+    }
+
+    return canvas;
+}
+
+function getLayerCanvasCacheKey(canvas: HTMLCanvasElement): string {
+    return [
+        canvas.width,
+        canvas.height,
+        previewView.scale.toFixed(6),
+        previewView.offsetX.toFixed(3),
+        previewView.offsetY.toFixed(3),
+        previewView.colorMode
+    ].join('|');
+}
+
+function invalidatePreviewLayerCache(): void {
+    layerCanvasCacheKey = '';
+    layerCanvasCache.clear();
 }
 
 function drawPreviewGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
@@ -506,13 +602,19 @@ function getLengthMarkerStep(windLength: number): number {
 }
 
 function drawSegment(ctx: CanvasRenderingContext2D, segment: IPreviewSegment, emphasized: boolean): void {
+    for (const wrappedSegment of getWrappedSegments(segment)) {
+        drawWrappedSegment(ctx, wrappedSegment, emphasized);
+    }
+    ctx.globalAlpha = 1;
+}
+
+function drawWrappedSegment(ctx: CanvasRenderingContext2D, wrappedSegment: IWrappedPreviewSegment, emphasized: boolean): void {
+    const segment = wrappedSegment.source;
     const segmentColor = getSegmentColor(segment);
     const towStrokeWidth = getTowStrokeWidth(emphasized);
 
-    for (const wrappedSegment of splitWrappedSegment(segment)) {
-        strokePreviewLine(ctx, wrappedSegment, segmentColor, towStrokeWidth, emphasized ? 0.95 : 0.56);
-        strokeTowEdges(ctx, wrappedSegment, getTowEdgeColor(segmentColor), towStrokeWidth, emphasized ? 0.98 : 0.82);
-    }
+    strokePreviewLine(ctx, wrappedSegment, segmentColor, towStrokeWidth, emphasized ? 0.95 : 0.56);
+    strokeTowEdges(ctx, wrappedSegment, getTowEdgeColor(segmentColor), towStrokeWidth, emphasized ? 0.98 : 0.82);
     ctx.globalAlpha = 1;
 }
 
@@ -574,6 +676,29 @@ function getTowStrokeWidth(emphasized: boolean): number {
     const towWidth = currentPreview.recipe.windParameters.towParameters.width;
     const highlightBoost = emphasized ? 1.18 : 1;
     return Math.max(2, towWidth * previewView.scale * highlightBoost);
+}
+
+function prepareWrappedPreviewSegments(preview: IPreviewResult | null): void {
+    wrappedPreviewSegments = [];
+    invalidatePreviewLayerCache();
+
+    if (!preview) {
+        return;
+    }
+
+    for (const segment of preview.plan.previewSegments) {
+        const wrappedSegments = splitWrappedSegment(segment).map((wrappedSegment) => ({
+            source: segment,
+            start: wrappedSegment.start,
+            end: wrappedSegment.end
+        }));
+        wrappedSegmentsBySegment.set(segment, wrappedSegments);
+        wrappedPreviewSegments.push(...wrappedSegments);
+    }
+}
+
+function getWrappedSegments(segment: IPreviewSegment): IWrappedPreviewSegment[] {
+    return wrappedSegmentsBySegment.get(segment) || [];
 }
 
 function splitWrappedSegment(segment: IPreviewSegment): Array<{start: {x: number; y: number}; end: {x: number; y: number}}> {
@@ -698,7 +823,7 @@ function showAllLayers(): void {
     }
     selectedCircuit = null;
     renderLayerTable(currentPreview);
-    drawPreview();
+    requestPreviewDraw();
 }
 
 function renderLayerTable(preview: IPreviewResult): void {
@@ -712,17 +837,17 @@ function renderLayerTable(preview: IPreviewResult): void {
         }
         row.addEventListener('mouseenter', () => {
             hoveredLayerIndex = index;
-            drawPreview();
+            requestPreviewDraw();
         });
         row.addEventListener('mouseleave', () => {
             hoveredLayerIndex = null;
-            drawPreview();
+            requestPreviewDraw();
         });
         row.addEventListener('click', () => {
             selectedLayerIndex = selectedLayerIndex === index ? null : index;
             selectedCircuit = null;
             renderLayerTable(preview);
-            drawPreview();
+            requestPreviewDraw();
         });
 
         const visibilityCell = document.createElement('td');
@@ -737,7 +862,7 @@ function renderLayerTable(preview: IPreviewResult): void {
             } else {
                 visibleLayerIndexes.delete(index);
             }
-            drawPreview();
+            requestPreviewDraw();
         });
         visibilityCell.appendChild(checkbox);
 
@@ -820,7 +945,7 @@ function createLayerDetails(preview: IPreviewResult, layer: TLayerParameters, in
             selectedLayerIndex = null;
             visibleLayerIndexes.add(index);
             renderLayerTable(preview);
-            drawPreview();
+            requestPreviewDraw();
         });
         container.appendChild(button);
     }
@@ -865,6 +990,10 @@ function formatLayerEstimate(preview: IPreviewResult, index: number): string {
 
 function isLayerHighlighted(layerIndex: number): boolean {
     return layerIndex === selectedLayerIndex || layerIndex === hoveredLayerIndex;
+}
+
+function shouldOverlaySegment(segment: IPreviewSegment): boolean {
+    return isSegmentSelectedCircuit(segment) || isLayerHighlighted(segment.layerIndex);
 }
 
 function isSegmentSelectedCircuit(segment: IPreviewSegment): boolean {
@@ -921,23 +1050,22 @@ function findNearestSegment(screenX: number, screenY: number): IPreviewSegment |
 
     let nearestSegment: IPreviewSegment | null = null;
     let nearestDistance = 10;
-    for (const segment of currentPreview.plan.previewSegments) {
+    for (const wrappedSegment of wrappedPreviewSegments) {
+        const segment = wrappedSegment.source;
         if (!visibleLayerIndexes.has(segment.layerIndex)) {
             continue;
         }
-        for (const wrappedSegment of splitWrappedSegment(segment)) {
-            const distance = distanceToScreenSegment(
-                screenX,
-                screenY,
-                previewToScreenX(wrappedSegment.start.x),
-                previewToScreenY(wrappedSegment.start.y),
-                previewToScreenX(wrappedSegment.end.x),
-                previewToScreenY(wrappedSegment.end.y)
-            );
-            if (distance < nearestDistance) {
-                nearestDistance = distance;
-                nearestSegment = segment;
-            }
+        const distance = distanceToScreenSegment(
+            screenX,
+            screenY,
+            previewToScreenX(wrappedSegment.start.x),
+            previewToScreenY(wrappedSegment.start.y),
+            previewToScreenX(wrappedSegment.end.x),
+            previewToScreenY(wrappedSegment.end.y)
+        );
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestSegment = segment;
         }
     }
     return nearestSegment;
