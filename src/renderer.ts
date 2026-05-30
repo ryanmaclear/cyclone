@@ -1,5 +1,6 @@
 type IMarlinStatus = import('./app-types').IMarlinStatus;
 type IPreviewResult = import('./app-types').IPreviewResult;
+type ICycloneApi = import('./app-types').ICycloneApi;
 type IPreviewSegment = import('./planner/types').IPreviewSegment;
 type ISaveArtifactsResult = import('./app-types').ISaveArtifactsResult;
 type ISerialPortOption = import('./app-types').ISerialPortOption;
@@ -32,6 +33,7 @@ interface ISelectedCircuit {
 }
 
 let currentPreview: IPreviewResult | null = null;
+const cyclone = window.cyclone ?? createWebCycloneApi();
 const visibleLayerIndexes = new Set<number>();
 const expandedLayerIndexes = new Set<number>();
 let hoveredLayerIndex: number | null = null;
@@ -63,23 +65,18 @@ let currentStatus: IMarlinStatus = {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
-    if (!window.cyclone) {
-        setRecipeMessage('Electron preload API did not load. Rebuild and restart the app.');
-        return;
-    }
-
     try {
         bindEvents();
         refreshPorts();
         updateRunControls();
 
-        window.cyclone.onSerialStatus((status) => {
+        cyclone.onSerialStatus((status) => {
             currentStatus = status;
             renderMachineStatus();
             updateRunControls();
         });
 
-        window.cyclone.onSerialLog((message) => appendSerialLog(message));
+        cyclone.onSerialLog((message) => appendSerialLog(message));
     } catch (error) {
         setRecipeMessage(getErrorMessage(error));
         console.error(error);
@@ -120,7 +117,7 @@ async function generatePreview(): Promise<void> {
     byId<HTMLButtonElement>('generate').disabled = true;
 
     try {
-        const preview = await window.cyclone.generatePreview({ recipeInput: readRecipeInput() });
+        const preview = await cyclone.generatePreview({ recipeInput: readRecipeInput() });
         currentPreview = preview;
         prepareWrappedPreviewSegments(preview);
         resetLayerVisibility(preview);
@@ -154,13 +151,13 @@ async function saveArtifacts(): Promise<void> {
         return;
     }
 
-    const basePath = await window.cyclone.chooseBasePath();
+    const basePath = await cyclone.chooseBasePath();
     if (!basePath) {
         return;
     }
 
     try {
-        const result = await window.cyclone.saveArtifacts({
+        const result = await cyclone.saveArtifacts({
             basePath,
             windParameters: currentPreview.recipe.windParameters,
             gcode: currentPreview.plan.gcode,
@@ -178,7 +175,7 @@ async function refreshPorts(): Promise<void> {
     select.innerHTML = '';
 
     try {
-        const ports = await window.cyclone.listSerialPorts();
+        const ports = await cyclone.listSerialPorts();
         if (ports.length === 0) {
             const option = document.createElement('option');
             option.value = '';
@@ -203,7 +200,7 @@ async function connectSerial(): Promise<void> {
     }
 
     try {
-        currentStatus = await window.cyclone.connectSerial({
+        currentStatus = await cyclone.connectSerial({
             path: portPath,
             baudRate: readNumber('baud-rate')
         });
@@ -216,7 +213,7 @@ async function connectSerial(): Promise<void> {
 }
 
 async function disconnectSerial(): Promise<void> {
-    currentStatus = await window.cyclone.disconnectSerial();
+    currentStatus = await cyclone.disconnectSerial();
     renderMachineStatus();
     updateRunControls();
     setMachineMessage('Disconnected.');
@@ -228,7 +225,7 @@ async function runGCode(): Promise<void> {
     }
 
     try {
-        currentStatus = await window.cyclone.runGCode(currentPreview.plan.gcode);
+        currentStatus = await cyclone.runGCode(currentPreview.plan.gcode);
         byId<HTMLInputElement>('arm-run').checked = false;
         renderMachineStatus();
         updateRunControls();
@@ -239,19 +236,19 @@ async function runGCode(): Promise<void> {
 }
 
 async function pauseMachine(): Promise<void> {
-    currentStatus = await window.cyclone.pauseMachine();
+    currentStatus = await cyclone.pauseMachine();
     renderMachineStatus();
     updateRunControls();
 }
 
 async function resumeMachine(): Promise<void> {
-    currentStatus = await window.cyclone.resumeMachine();
+    currentStatus = await cyclone.resumeMachine();
     renderMachineStatus();
     updateRunControls();
 }
 
 async function clearQueue(): Promise<void> {
-    currentStatus = await window.cyclone.clearMachineQueue();
+    currentStatus = await cyclone.clearMachineQueue();
     renderMachineStatus();
     updateRunControls();
 }
@@ -1194,4 +1191,75 @@ function byId<T extends HTMLElement>(id: string): T {
         throw new Error(`Missing element ${id}`);
     }
     return element as T;
+}
+
+function createWebCycloneApi(): ICycloneApi {
+    type TEventHandler = (payload: unknown) => void;
+    const eventHandlers = new Map<string, Set<TEventHandler>>();
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${protocol}://${window.location.host}/api/events`);
+
+    socket.addEventListener('message', (message) => {
+        if (typeof message.data !== 'string') {
+            return;
+        }
+        let parsed: { event?: string; payload?: unknown } | null = null;
+        try {
+            parsed = JSON.parse(message.data) as { event?: string; payload?: unknown };
+        } catch {
+            return;
+        }
+        if (!parsed || typeof parsed.event !== 'string') {
+            return;
+        }
+        const handlers = eventHandlers.get(parsed.event);
+        if (!handlers) {
+            return;
+        }
+        handlers.forEach((handler) => handler(parsed?.payload));
+    });
+
+    function onEvent(event: string, callback: TEventHandler): () => void {
+        const handlers = eventHandlers.get(event) ?? new Set<TEventHandler>();
+        handlers.add(callback);
+        eventHandlers.set(event, handlers);
+        return () => handlers.delete(callback);
+    }
+
+    async function postJson<T>(url: string, body: unknown): Promise<T> {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        return apiParseResponse<T>(response);
+    }
+
+    async function getJson<T>(url: string): Promise<T> {
+        const response = await fetch(url);
+        return apiParseResponse<T>(response);
+    }
+
+    return {
+        generatePreview: (request) => postJson('/api/recipe/preview', request),
+        chooseBasePath: async () => window.prompt('Enter output base path on server (example: /home/pi/jobs/tube1)') ?? null,
+        saveArtifacts: (request) => postJson('/api/recipe/artifacts', request),
+        listSerialPorts: () => getJson('/api/serial/ports'),
+        connectSerial: (request) => postJson('/api/serial/connect', request),
+        disconnectSerial: () => postJson('/api/serial/disconnect', {}),
+        runGCode: (commands) => postJson('/api/serial/run', { commands }),
+        pauseMachine: () => postJson('/api/serial/pause', {}),
+        resumeMachine: () => postJson('/api/serial/resume', {}),
+        clearMachineQueue: () => postJson('/api/serial/clear', {}),
+        onSerialStatus: (callback) => onEvent('serial:status', (payload) => callback(payload as IMarlinStatus)),
+        onSerialLog: (callback) => onEvent('serial:log', (payload) => callback(String(payload)))
+    };
+}
+
+async function apiParseResponse<T>(response: Response): Promise<T> {
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({ error: response.statusText }));
+        throw new Error((payload as { error?: string }).error ?? response.statusText);
+    }
+    return response.json() as Promise<T>;
 }

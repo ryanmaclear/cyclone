@@ -5,11 +5,12 @@
   "main": "dist/src/main.js",
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node ./dist/test/recipe.test.js",
+    "test": "npm run build && node ./dist/test/recipe.test.js && node ./dist/test/web-api-client.test.js",
     "watch": "tsc -w",
     "lint": "eslint -c .eslintrc --ext .ts ./src",
     "start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron --disable-gpu --disable-software-rasterizer --disable-gpu-sandbox .",
-    "cli": "npm run build && node ./dist/src/cli-entry.js"
+    "cli": "npm run build && node ./dist/src/cli-entry.js",
+    "start:server": "npm run build && node ./dist/src/server.js"
   },
   "repository": {
     "type": "git",
@@ -29,10 +30,13 @@
   "dependencies": {
     "@types/canvasjs": "^1.9.7",
     "canvas": "^3.2.0",
+    "express": "^4.21.2",
     "serialport": "^10.3.0",
+    "ws": "^8.18.3",
     "yargs": "^17.3.1"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/yargs": "^17.0.8",
     "@typescript-eslint/eslint-plugin": "^4.33.0",
     "@typescript-eslint/parser": "^4.33.0",
