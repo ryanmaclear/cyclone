@@ -306,6 +306,11 @@
         background: #eef6f3;
       }
 
+      tr.layer-details-row td {
+        background: #fbfbf8;
+        padding: 10px 12px 12px 62px;
+      }
+
       td.visibility-cell {
         width: 54px;
       }
@@ -313,6 +318,45 @@
       td.visibility-cell input {
         height: 16px;
         width: 16px;
+      }
+
+      .layer-cell {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+      }
+
+      .expand-layer {
+        background: #58636b;
+        min-height: 26px;
+        min-width: 28px;
+        padding: 2px 7px;
+      }
+
+      .circuit-list {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .circuit-list span {
+        color: #4d5961;
+        font-size: 12px;
+        font-weight: 700;
+        margin-right: 4px;
+      }
+
+      .circuit-button {
+        background: #dfe6df;
+        color: #20242a;
+        min-height: 28px;
+        padding: 4px 8px;
+      }
+
+      .circuit-button.selected {
+        background: #2f6f73;
+        color: #ffffff;
       }
     </style>
   </head>

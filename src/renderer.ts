@@ -19,10 +19,17 @@ interface IPreviewView {
     colorMode: TColorMode;
 }
 
+interface ISelectedCircuit {
+    layerIndex: number;
+    circuitIndex: number;
+}
+
 let currentPreview: IPreviewResult | null = null;
 const visibleLayerIndexes = new Set<number>();
+const expandedLayerIndexes = new Set<number>();
 let hoveredLayerIndex: number | null = null;
 let selectedLayerIndex: number | null = null;
+let selectedCircuit: ISelectedCircuit | null = null;
 const previewView: IPreviewView = {
     scale: 1,
     offsetX: 20,
@@ -109,8 +116,10 @@ async function generatePreview(): Promise<void> {
     } catch (error) {
         currentPreview = null;
         visibleLayerIndexes.clear();
+        expandedLayerIndexes.clear();
         hoveredLayerIndex = null;
         selectedLayerIndex = null;
+        selectedCircuit = null;
         renderPreview(null);
         byId<HTMLButtonElement>('save').disabled = true;
         byId<HTMLInputElement>('arm-run').disabled = true;
@@ -332,16 +341,19 @@ function fitPreview(): void {
     const canvas = byId<HTMLCanvasElement>('preview-canvas');
     const rect = canvas.getBoundingClientRect();
     const windLength = currentPreview.recipe.windParameters.mandrelParameters.windLength;
-    const padding = 28;
-    previewView.scale = Math.max(0.1, Math.min((rect.width - padding * 2) / windLength, (rect.height - padding * 2) / 360));
-    previewView.offsetX = (rect.width - windLength * previewView.scale) / 2;
-    previewView.offsetY = (rect.height - 360 * previewView.scale) / 2;
+    const paddingLeft = 72;
+    const paddingRight = 28;
+    const paddingTop = 28;
+    const paddingBottom = 54;
+    previewView.scale = Math.max(0.1, Math.min((rect.width - paddingLeft - paddingRight) / windLength, (rect.height - paddingTop - paddingBottom) / 360));
+    previewView.offsetX = paddingLeft + ((rect.width - paddingLeft - paddingRight) - windLength * previewView.scale) / 2;
+    previewView.offsetY = paddingTop + ((rect.height - paddingTop - paddingBottom) - 360 * previewView.scale) / 2;
     drawPreview();
 }
 
 function actualSizePreview(): void {
     previewView.scale = 1;
-    previewView.offsetX = 24;
+    previewView.offsetX = 72;
     previewView.offsetY = 24;
     drawPreview();
 }
@@ -373,7 +385,7 @@ function drawPreview(): void {
     ctx.fillRect(0, 0, rect.width, rect.height);
     drawPreviewGrid(ctx, rect.width, rect.height);
 
-    ctx.lineCap = 'round';
+    ctx.lineCap = 'butt';
     ctx.lineJoin = 'round';
 
     const highlightedSegments: IPreviewSegment[] = [];
@@ -381,7 +393,7 @@ function drawPreview(): void {
         if (!visibleLayerIndexes.has(segment.layerIndex)) {
             continue;
         }
-        if (isLayerHighlighted(segment.layerIndex)) {
+        if (isSegmentSelectedCircuit(segment) || isLayerHighlighted(segment.layerIndex)) {
             highlightedSegments.push(segment);
             continue;
         }
@@ -403,26 +415,139 @@ function drawPreviewGrid(ctx: CanvasRenderingContext2D, width: number, height: n
         ctx.lineTo(previewToScreenX(windLength), screenY);
         ctx.stroke();
     }
+    drawLengthMarkers(ctx, windLength, height);
     ctx.strokeStyle = '#c6cec1';
     ctx.strokeRect(previewToScreenX(0), previewToScreenY(0), windLength * previewView.scale, 360 * previewView.scale);
     ctx.fillStyle = '#68727a';
     ctx.font = '12px Arial';
-    ctx.fillText('0 deg', Math.min(width - 42, previewToScreenX(0) + 6), Math.max(14, previewToScreenY(0) + 14));
-    ctx.fillText('360 deg', Math.min(width - 54, previewToScreenX(0) + 6), Math.min(height - 6, previewToScreenY(360) - 6));
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    const labelX = Math.max(48, Math.min(width - 12, previewToScreenX(0) - 10));
+    ctx.fillText('0 deg', labelX, previewToScreenY(0));
+    ctx.fillText('90 deg', labelX, previewToScreenY(90));
+    ctx.fillText('180 deg', labelX, previewToScreenY(180));
+    ctx.fillText('270 deg', labelX, previewToScreenY(270));
+    ctx.fillText('360 deg', labelX, previewToScreenY(360));
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+}
+
+function drawLengthMarkers(ctx: CanvasRenderingContext2D, windLength: number, height: number): void {
+    const tubeBottomY = previewToScreenY(360);
+    const markerTopY = tubeBottomY + 5;
+    const markerBottomY = tubeBottomY + 12;
+    const labelY = Math.min(height - 8, tubeBottomY + 28);
+    const step = getLengthMarkerStep(windLength);
+
+    ctx.strokeStyle = '#c6cec1';
+    ctx.fillStyle = '#68727a';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    for (let x = 0; x <= windLength + 0.001; x += step) {
+        drawLengthMarker(ctx, x, markerTopY, markerBottomY, labelY);
+    }
+
+    if (windLength % step !== 0) {
+        drawLengthMarker(ctx, windLength, markerTopY, markerBottomY, labelY);
+    }
+
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+}
+
+function drawLengthMarker(ctx: CanvasRenderingContext2D, lengthMM: number, markerTopY: number, markerBottomY: number, labelY: number): void {
+    const screenX = previewToScreenX(lengthMM);
+    ctx.beginPath();
+    ctx.moveTo(screenX, markerTopY);
+    ctx.lineTo(screenX, markerBottomY);
+    ctx.stroke();
+    ctx.fillText(`${Math.round(lengthMM)} mm`, screenX, labelY);
+}
+
+function getLengthMarkerStep(windLength: number): number {
+    const targetMarkerCount = 6;
+    const roughStep = windLength / targetMarkerCount;
+    const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+    for (const multiplier of [1, 2, 5, 10]) {
+        const step = multiplier * magnitude;
+        if (roughStep <= step) {
+            return step;
+        }
+    }
+    return 10 * magnitude;
 }
 
 function drawSegment(ctx: CanvasRenderingContext2D, segment: IPreviewSegment, emphasized: boolean): void {
-    ctx.strokeStyle = getSegmentColor(segment);
-    ctx.globalAlpha = emphasized ? 1 : 0.62;
-    ctx.lineWidth = Math.max(1.25, Math.min(8, previewView.scale * 0.9));
+    const segmentColor = getSegmentColor(segment);
+    const towStrokeWidth = getTowStrokeWidth(emphasized);
 
     for (const wrappedSegment of splitWrappedSegment(segment)) {
-        ctx.beginPath();
-        ctx.moveTo(previewToScreenX(wrappedSegment.start.x), previewToScreenY(wrappedSegment.start.y));
-        ctx.lineTo(previewToScreenX(wrappedSegment.end.x), previewToScreenY(wrappedSegment.end.y));
-        ctx.stroke();
+        strokePreviewLine(ctx, wrappedSegment, segmentColor, towStrokeWidth, emphasized ? 0.95 : 0.56);
+        strokeTowEdges(ctx, wrappedSegment, getTowEdgeColor(segmentColor), towStrokeWidth, emphasized ? 0.98 : 0.82);
     }
     ctx.globalAlpha = 1;
+}
+
+function strokePreviewLine(
+    ctx: CanvasRenderingContext2D,
+    wrappedSegment: {start: {x: number; y: number}; end: {x: number; y: number}},
+    color: string,
+    width: number,
+    alpha: number
+): void {
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(previewToScreenX(wrappedSegment.start.x), previewToScreenY(wrappedSegment.start.y));
+    ctx.lineTo(previewToScreenX(wrappedSegment.end.x), previewToScreenY(wrappedSegment.end.y));
+    ctx.stroke();
+}
+
+function strokeTowEdges(
+    ctx: CanvasRenderingContext2D,
+    wrappedSegment: {start: {x: number; y: number}; end: {x: number; y: number}},
+    color: string,
+    towWidth: number,
+    alpha: number
+): void {
+    const x1 = previewToScreenX(wrappedSegment.start.x);
+    const y1 = previewToScreenY(wrappedSegment.start.y);
+    const x2 = previewToScreenX(wrappedSegment.end.x);
+    const y2 = previewToScreenY(wrappedSegment.end.y);
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy);
+    if (length === 0) {
+        return;
+    }
+
+    const normalX = -dy / length;
+    const normalY = dx / length;
+    const edgeOffset = towWidth / 2;
+    const edgeWidth = Math.max(1, Math.min(2.5, towWidth * 0.08));
+
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = edgeWidth;
+    for (const sign of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(x1 + normalX * edgeOffset * sign, y1 + normalY * edgeOffset * sign);
+        ctx.lineTo(x2 + normalX * edgeOffset * sign, y2 + normalY * edgeOffset * sign);
+        ctx.stroke();
+    }
+}
+
+function getTowStrokeWidth(emphasized: boolean): number {
+    if (!currentPreview) {
+        return 1;
+    }
+
+    const towWidth = currentPreview.recipe.windParameters.towParameters.width;
+    const highlightBoost = emphasized ? 1.18 : 1;
+    return Math.max(2, towWidth * previewView.scale * highlightBoost);
 }
 
 function splitWrappedSegment(segment: IPreviewSegment): Array<{start: {x: number; y: number}; end: {x: number; y: number}}> {
@@ -460,7 +585,7 @@ function splitWrappedSegment(segment: IPreviewSegment): Array<{start: {x: number
 function getSegmentColor(segment: IPreviewSegment): string {
     const palette = ['#1f77b4', '#d1495b', '#2e8b57', '#8a5b28', '#6f4aa8', '#2f6f73', '#c36f09', '#5c677d'];
     if (previewView.colorMode === 'circuit') {
-        return palette[(segment.circuitIndex || 0) % palette.length];
+        return palette[(getSegmentCircuitIndex(segment) || 0) % palette.length];
     }
     if (previewView.colorMode === 'pass') {
         if (segment.groupKind === 'lock') {
@@ -469,6 +594,14 @@ function getSegmentColor(segment: IPreviewSegment): string {
         return segment.passDirection === 'back' ? '#d1495b' : '#2f6f73';
     }
     return palette[segment.layerIndex % palette.length];
+}
+
+function getTowEdgeColor(color: string): string {
+    const hexColor = color.replace('#', '');
+    const red = Math.max(0, Math.floor(Number.parseInt(hexColor.slice(0, 2), 16) * 0.62));
+    const green = Math.max(0, Math.floor(Number.parseInt(hexColor.slice(2, 4), 16) * 0.62));
+    const blue = Math.max(0, Math.floor(Number.parseInt(hexColor.slice(4, 6), 16) * 0.62));
+    return `rgb(${red}, ${green}, ${blue})`;
 }
 
 function clearPreviewCanvas(): void {
@@ -520,8 +653,10 @@ function setPreviewControlsEnabled(enabled: boolean): void {
 
 function resetLayerVisibility(preview: IPreviewResult): void {
     visibleLayerIndexes.clear();
+    expandedLayerIndexes.clear();
     hoveredLayerIndex = null;
     selectedLayerIndex = null;
+    selectedCircuit = null;
     for (let index = 0; index < preview.recipe.windParameters.layers.length; index++) {
         visibleLayerIndexes.add(index);
     }
@@ -535,6 +670,7 @@ function showAllLayers(): void {
     for (let index = 0; index < currentPreview.recipe.windParameters.layers.length; index++) {
         visibleLayerIndexes.add(index);
     }
+    selectedCircuit = null;
     renderLayerTable(currentPreview);
     drawPreview();
 }
@@ -558,6 +694,7 @@ function renderLayerTable(preview: IPreviewResult): void {
         });
         row.addEventListener('click', () => {
             selectedLayerIndex = selectedLayerIndex === index ? null : index;
+            selectedCircuit = null;
             renderLayerTable(preview);
             drawPreview();
         });
@@ -579,12 +716,89 @@ function renderLayerTable(preview: IPreviewResult): void {
         visibilityCell.appendChild(checkbox);
 
         row.appendChild(visibilityCell);
-        row.appendChild(createTextCell(`${index + 1}: ${layer.windType}`));
+        row.appendChild(createLayerCell(preview, layer, index));
         row.appendChild(createTextCell(formatLayerParameters(layer)));
         row.appendChild(createTextCell(formatLayerFacts(preview, layer, index)));
         row.appendChild(createTextCell(formatLayerEstimate(preview, index)));
         layerTableBody.appendChild(row);
+
+        if (expandedLayerIndexes.has(index)) {
+            layerTableBody.appendChild(createLayerDetailsRow(preview, layer, index));
+        }
     });
+}
+
+function createLayerCell(preview: IPreviewResult, layer: TLayerParameters, index: number): HTMLTableCellElement {
+    const cell = document.createElement('td');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'layer-cell';
+
+    const expandButton = document.createElement('button');
+    expandButton.className = 'expand-layer';
+    expandButton.textContent = expandedLayerIndexes.has(index) ? '-' : '+';
+    expandButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (expandedLayerIndexes.has(index)) {
+            expandedLayerIndexes.delete(index);
+        } else {
+            expandedLayerIndexes.add(index);
+        }
+        renderLayerTable(preview);
+    });
+
+    const label = document.createElement('span');
+    label.textContent = `${index + 1}: ${layer.windType}`;
+
+    wrapper.appendChild(expandButton);
+    wrapper.appendChild(label);
+    cell.appendChild(wrapper);
+    return cell;
+}
+
+function createLayerDetailsRow(preview: IPreviewResult, layer: TLayerParameters, index: number): HTMLTableRowElement {
+    const row = document.createElement('tr');
+    row.className = 'layer-details-row';
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.appendChild(createLayerDetails(preview, layer, index));
+    row.appendChild(cell);
+    return row;
+}
+
+function createLayerDetails(preview: IPreviewResult, layer: TLayerParameters, index: number): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'circuit-list';
+    const label = document.createElement('span');
+    container.appendChild(label);
+
+    if (layer.windType !== 'helical') {
+        label.textContent = 'No generated circuits for this layer.';
+        return container;
+    }
+
+    const summary = preview.plan.layers.find((layerSummary) => layerSummary.layerIndex === index + 1);
+    const circuitCount = summary && summary.circuitCount ? summary.circuitCount : preview.recipe.summary.numCircuits;
+    label.textContent = `${circuitCount} circuits`;
+    for (let circuitIndex = 0; circuitIndex < circuitCount; circuitIndex++) {
+        const button = document.createElement('button');
+        button.className = 'circuit-button';
+        if (selectedCircuit && selectedCircuit.layerIndex === index && selectedCircuit.circuitIndex === circuitIndex) {
+            button.classList.add('selected');
+        }
+        button.textContent = `${circuitIndex + 1}`;
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            selectedCircuit = selectedCircuit && selectedCircuit.layerIndex === index && selectedCircuit.circuitIndex === circuitIndex
+                ? null
+                : {layerIndex: index, circuitIndex};
+            selectedLayerIndex = null;
+            visibleLayerIndexes.add(index);
+            renderLayerTable(preview);
+            drawPreview();
+        });
+        container.appendChild(button);
+    }
+    return container;
 }
 
 function createTextCell(text: string): HTMLTableCellElement {
@@ -625,6 +839,25 @@ function formatLayerEstimate(preview: IPreviewResult, index: number): string {
 
 function isLayerHighlighted(layerIndex: number): boolean {
     return layerIndex === selectedLayerIndex || layerIndex === hoveredLayerIndex;
+}
+
+function isSegmentSelectedCircuit(segment: IPreviewSegment): boolean {
+    if (!selectedCircuit || segment.layerIndex !== selectedCircuit.layerIndex) {
+        return false;
+    }
+    return getSegmentCircuitIndex(segment) === selectedCircuit.circuitIndex;
+}
+
+function getSegmentCircuitIndex(segment: IPreviewSegment): number | null {
+    if (!currentPreview || typeof segment.circuitIndex !== 'number') {
+        return null;
+    }
+
+    const layer = currentPreview.recipe.windParameters.layers[segment.layerIndex];
+    if (!layer || layer.windType !== 'helical') {
+        return segment.circuitIndex;
+    }
+    return ((segment.patternIndex || 0) * layer.patternNumber) + segment.circuitIndex;
 }
 
 function updatePreviewTooltip(event: MouseEvent): void {
@@ -700,7 +933,8 @@ function formatSegmentTooltip(segment: IPreviewSegment): string {
         segment.groupKind
     ];
     if (typeof segment.circuitIndex === 'number') {
-        parts.push(`circuit ${segment.circuitIndex + 1}`);
+        const circuitIndex = getSegmentCircuitIndex(segment);
+        parts.push(`circuit ${typeof circuitIndex === 'number' ? circuitIndex + 1 : segment.circuitIndex + 1}`);
     }
     if (segment.passDirection) {
         parts.push(segment.passDirection);
