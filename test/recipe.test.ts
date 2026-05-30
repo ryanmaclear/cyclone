@@ -15,6 +15,8 @@ const baseInput: ITubeRecipeInput = {
     windLength: 900,
     windAngle: 45,
     strengthPreset: 'medium',
+    layerMode: 'count',
+    layerCount: 4,
     towWidth: 7,
     towThickness: 0.5,
     defaultFeedRate: 9000,
@@ -25,6 +27,8 @@ const baseInput: ITubeRecipeInput = {
 
 const mediumRecipe = generateTubeRecipe(baseInput);
 assert.strictEqual(mediumRecipe.summary.requestedLayerCount, 4);
+assert.strictEqual(mediumRecipe.summary.layerMode, 'count');
+assert.strictEqual(mediumRecipe.summary.achievedThickness, 2);
 assert.strictEqual(mediumRecipe.summary.helicalLayerCount, 3);
 assert.strictEqual(mediumRecipe.summary.hoopLayerCount, 1);
 assert.deepStrictEqual(mediumRecipe.windParameters.layers.map((layer) => layer.windType), [
@@ -42,6 +46,50 @@ const heavyOverrideRecipe = generateTubeRecipe({
 assert.strictEqual(heavyOverrideRecipe.summary.requestedLayerCount, 5);
 assert.strictEqual(heavyOverrideRecipe.summary.helicalLayerCount, 3);
 assert.strictEqual(heavyOverrideRecipe.summary.hoopLayerCount, 2);
+
+const countModeIgnoresTargetThickness = generateTubeRecipe({
+    ...baseInput,
+    targetThickness: 1.3
+});
+assert.strictEqual(countModeIgnoresTargetThickness.summary.requestedLayerCount, 4);
+assert.strictEqual(countModeIgnoresTargetThickness.summary.targetThickness, undefined);
+
+const thicknessRecipe = generateTubeRecipe({
+    ...baseInput,
+    layerMode: 'thickness',
+    layerCount: undefined,
+    targetThickness: 2
+});
+assert.strictEqual(thicknessRecipe.summary.layerMode, 'thickness');
+assert.strictEqual(thicknessRecipe.summary.requestedLayerCount, 4);
+assert.strictEqual(thicknessRecipe.summary.helicalLayerCount, 3);
+assert.strictEqual(thicknessRecipe.summary.hoopLayerCount, 1);
+assert.strictEqual(thicknessRecipe.summary.targetThickness, 2);
+assert.strictEqual(thicknessRecipe.summary.achievedThickness, 2);
+assert.deepStrictEqual(thicknessRecipe.windParameters.layers.map((layer) => layer.windType), [
+    ELayerType.HELICAL,
+    ELayerType.HELICAL,
+    ELayerType.HELICAL,
+    ELayerType.HOOP
+]);
+
+const oneLayerThicknessRecipe = validateTubeRecipeInput({
+    ...baseInput,
+    layerMode: 'thickness',
+    layerCount: undefined,
+    targetThickness: 0.5
+});
+assert.strictEqual(oneLayerThicknessRecipe.valid, false);
+assert.ok(oneLayerThicknessRecipe.errors.some((error) => error.includes('at least 2 layers')));
+
+const inexactThicknessRecipe = validateTubeRecipeInput({
+    ...baseInput,
+    layerMode: 'thickness',
+    layerCount: undefined,
+    targetThickness: 1.3
+});
+assert.strictEqual(inexactThicknessRecipe.valid, false);
+assert.ok(inexactThicknessRecipe.errors.some((error) => error.includes('exact multiple')));
 
 assert.strictEqual(choosePatternNumber(24), 4);
 assert.strictEqual(choosePatternNumber(21), 3);

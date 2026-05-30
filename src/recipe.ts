@@ -2,13 +2,16 @@ import { degToRad } from './helpers';
 import { ELayerType, IWindParameters, TLayerParameters } from './planner/types';
 
 export type TStrengthPreset = 'light' | 'medium' | 'heavy';
+export type TLayerMode = 'count' | 'thickness';
 
 export interface ITubeRecipeInput {
     diameter: number;
     windLength: number;
     windAngle: number;
     strengthPreset: TStrengthPreset;
+    layerMode: TLayerMode;
     layerCount?: number;
+    targetThickness?: number;
     towWidth: number;
     towThickness: number;
     defaultFeedRate: number;
@@ -24,11 +27,14 @@ export interface IGeneratedRecipe {
 }
 
 export interface IRecipeSummary {
+    layerMode: TLayerMode;
     requestedLayerCount: number;
     helicalLayerCount: number;
     hoopLayerCount: number;
     numCircuits: number;
     patternNumber: number;
+    targetThickness?: number;
+    achievedThickness: number;
 }
 
 export interface IRecipeValidationResult {
@@ -51,6 +57,7 @@ const HOOP_RATIOS: Record<TStrengthPreset, number> = {
 export const MAX_AUTO_PATTERN_NUMBER = 4;
 export const MIN_WIND_ANGLE_DEGREES = 10;
 export const MAX_WIND_ANGLE_DEGREES = 80;
+const THICKNESS_LAYER_TOLERANCE = 0.000001;
 
 export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidationResult {
     const errors: string[] = [];
@@ -66,8 +73,31 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
         errors.push(`Winding angle must be between ${MIN_WIND_ANGLE_DEGREES} and ${MAX_WIND_ANGLE_DEGREES} degrees.`);
     }
 
-    if (typeof input.layerCount !== 'undefined' && (!Number.isInteger(input.layerCount) || input.layerCount < 1)) {
-        errors.push('Layer count must be a whole number of at least 1.');
+    if (input.layerMode !== 'count' && input.layerMode !== 'thickness') {
+        errors.push('Layer mode must be count or thickness.');
+    }
+
+    if (input.layerMode === 'count') {
+        if (!Number.isInteger(input.layerCount) || input.layerCount < 1) {
+            errors.push('Layer count must be a whole number of at least 1.');
+        }
+    }
+
+    if (input.layerMode === 'thickness') {
+        requirePositive(input.targetThickness, 'Target thickness', errors);
+
+        if (Number.isFinite(input.targetThickness) && Number.isFinite(input.towThickness) && input.towThickness > 0) {
+            const calculatedLayerCount = input.targetThickness / input.towThickness;
+            const roundedLayerCount = Math.round(calculatedLayerCount);
+
+            if (Math.abs(calculatedLayerCount - roundedLayerCount) > THICKNESS_LAYER_TOLERANCE) {
+                errors.push('Target thickness must be an exact multiple of tow thickness.');
+            }
+
+            if (roundedLayerCount < 2) {
+                errors.push('Target thickness must produce at least 2 layers so the final layer can be hoop.');
+            }
+        }
     }
 
     if (!Number.isFinite(input.leadInMM) || input.leadInMM < 0) {
@@ -102,11 +132,13 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
         throw new Error(validation.errors.join(' '));
     }
 
-    const requestedLayerCount = input.layerCount || PRESET_LAYER_COUNTS[input.strengthPreset];
-    const hoopLayerCount = getHoopLayerCount(requestedLayerCount, input.strengthPreset);
-    const helicalLayerCount = requestedLayerCount - hoopLayerCount;
+    const layerCounts = getLayerCounts(input);
+    const requestedLayerCount = layerCounts.requestedLayerCount;
+    const helicalLayerCount = layerCounts.helicalLayerCount;
+    const hoopLayerCount = layerCounts.hoopLayerCount;
     const numCircuits = calculateHelicalCircuitCount(input.diameter, input.towWidth, input.windAngle);
     const patternNumber = choosePatternNumber(numCircuits);
+    const achievedThickness = requestedLayerCount * input.towThickness;
     const layers: TLayerParameters[] = [];
 
     for (let index = 0; index < helicalLayerCount; index++) {
@@ -143,11 +175,14 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
             defaultFeedRate: input.defaultFeedRate
         },
         summary: {
+            layerMode: input.layerMode,
             requestedLayerCount,
             helicalLayerCount,
             hoopLayerCount,
             numCircuits,
-            patternNumber
+            patternNumber,
+            targetThickness: input.layerMode === 'thickness' ? input.targetThickness : undefined,
+            achievedThickness
         },
         warnings: [
             'Strength is a recipe preset, not a certified load rating.',
@@ -183,7 +218,26 @@ function getHoopLayerCount(layerCount: number, strengthPreset: TStrengthPreset):
     return Math.max(1, Math.min(layerCount - 1, roundedHoopCount));
 }
 
-function requirePositive(value: number, label: string, errors: string[]): void {
+function getLayerCounts(input: ITubeRecipeInput): {requestedLayerCount: number; helicalLayerCount: number; hoopLayerCount: number} {
+    if (input.layerMode === 'thickness') {
+        const requestedLayerCount = Math.round((input.targetThickness || 0) / input.towThickness);
+        return {
+            requestedLayerCount,
+            helicalLayerCount: requestedLayerCount - 1,
+            hoopLayerCount: 1
+        };
+    }
+
+    const requestedLayerCount = input.layerCount || PRESET_LAYER_COUNTS[input.strengthPreset];
+    const hoopLayerCount = getHoopLayerCount(requestedLayerCount, input.strengthPreset);
+    return {
+        requestedLayerCount,
+        helicalLayerCount: requestedLayerCount - hoopLayerCount,
+        hoopLayerCount
+    };
+}
+
+function requirePositive(value: number | undefined, label: string, errors: string[]): void {
     if (!Number.isFinite(value) || value <= 0) {
         errors.push(`${label} must be greater than zero.`);
     }

@@ -5,6 +5,7 @@ type ISaveArtifactsResult = import('./app-types').ISaveArtifactsResult;
 type ISerialPortOption = import('./app-types').ISerialPortOption;
 type TLayerParameters = import('./planner/types').TLayerParameters;
 type ITubeRecipeInput = import('./recipe').ITubeRecipeInput;
+type TLayerMode = import('./recipe').TLayerMode;
 type TStrengthPreset = import('./recipe').TStrengthPreset;
 
 type TColorMode = 'layer' | 'circuit' | 'pass';
@@ -85,6 +86,8 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('resume').addEventListener('click', resumeMachine);
     byId<HTMLButtonElement>('clear-queue').addEventListener('click', clearQueue);
     byId<HTMLInputElement>('arm-run').addEventListener('change', updateRunControls);
+    byId<HTMLInputElement>('layer-mode-count').addEventListener('change', updateLayerModeControls);
+    byId<HTMLInputElement>('layer-mode-thickness').addEventListener('change', updateLayerModeControls);
     byId<HTMLButtonElement>('fit-preview').addEventListener('click', fitPreview);
     byId<HTMLButtonElement>('actual-size-preview').addEventListener('click', actualSizePreview);
     byId<HTMLButtonElement>('zoom-in-preview').addEventListener('click', () => zoomPreview(1.25));
@@ -95,6 +98,7 @@ function bindEvents(): void {
         drawPreview();
     });
     bindCanvasEvents();
+    updateLayerModeControls();
     window.addEventListener('resize', drawPreview);
 }
 
@@ -239,13 +243,17 @@ async function clearQueue(): Promise<void> {
 }
 
 function readRecipeInput(): ITubeRecipeInput {
+    const layerMode = getLayerMode();
     const layerCount = readNumber('layer-count');
+    const targetThickness = readNumber('target-thickness');
     return {
         diameter: readNumber('diameter'),
         windLength: readNumber('wind-length'),
         windAngle: readNumber('wind-angle'),
         strengthPreset: byId<HTMLSelectElement>('strength').value as TStrengthPreset,
-        layerCount: Number.isFinite(layerCount) ? layerCount : undefined,
+        layerMode,
+        layerCount: layerMode === 'count' && Number.isFinite(layerCount) ? layerCount : undefined,
+        targetThickness: layerMode === 'thickness' && Number.isFinite(targetThickness) ? targetThickness : undefined,
         towWidth: readNumber('tow-width'),
         towThickness: readNumber('tow-thickness'),
         defaultFeedRate: readNumber('feed-rate'),
@@ -277,7 +285,12 @@ function renderPreview(preview: IPreviewResult | null): void {
     fitPreview();
     renderLayerTable(preview);
 
+    addMetric(summary, 'Mode', preview.recipe.summary.layerMode === 'count' ? 'Layer count' : 'Total thickness');
     addMetric(summary, 'Layers', preview.recipe.summary.requestedLayerCount.toString());
+    if (preview.recipe.summary.layerMode === 'thickness' && typeof preview.recipe.summary.targetThickness !== 'undefined') {
+        addMetric(summary, 'Target thickness', `${formatMM(preview.recipe.summary.targetThickness)} mm`);
+    }
+    addMetric(summary, 'Achieved thickness', `${formatMM(preview.recipe.summary.achievedThickness)} mm`);
     addMetric(summary, 'Helical', preview.recipe.summary.helicalLayerCount.toString());
     addMetric(summary, 'Hoop', preview.recipe.summary.hoopLayerCount.toString());
     addMetric(summary, 'Pattern', preview.recipe.summary.patternNumber.toString());
@@ -291,6 +304,19 @@ function renderPreview(preview: IPreviewResult | null): void {
         item.textContent = warning;
         warnings.appendChild(item);
     }
+}
+
+function updateLayerModeControls(): void {
+    const thicknessMode = getLayerMode() === 'thickness';
+    const layerCountInput = byId<HTMLInputElement>('layer-count');
+    const targetThicknessInput = byId<HTMLInputElement>('target-thickness');
+    const layerCountField = byId<HTMLLabelElement>('layer-count-field');
+    const targetThicknessField = byId<HTMLLabelElement>('target-thickness-field');
+
+    layerCountInput.disabled = thicknessMode;
+    targetThicknessInput.disabled = !thicknessMode;
+    layerCountField.classList.toggle('inactive-field', thicknessMode);
+    targetThicknessField.classList.toggle('inactive-field', !thicknessMode);
 }
 
 function bindCanvasEvents(): void {
@@ -1015,8 +1041,16 @@ function getPlotBase64(plotDataUrl: string | null): string | null {
     return plotDataUrl.split(',')[1] || null;
 }
 
+function getLayerMode(): TLayerMode {
+    return byId<HTMLInputElement>('layer-mode-thickness').checked ? 'thickness' : 'count';
+}
+
 function readNumber(id: string): number {
     return Number.parseFloat(byId<HTMLInputElement>(id).value);
+}
+
+function formatMM(value: number): string {
+    return Number.isInteger(value) ? value.toString() : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function getErrorMessage(error: unknown): string {
