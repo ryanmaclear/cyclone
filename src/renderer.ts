@@ -32,6 +32,9 @@ interface ISelectedCircuit {
     circuitIndex: number;
 }
 
+const DEFAULT_GCODE_FILENAME = 'tube.gcode';
+const GCODE_STACK_BREAKPOINT_PX = 1500;
+
 let currentPreview: IPreviewResult | null = null;
 const cyclone = window.cyclone ?? createWebCycloneApi();
 const visibleLayerIndexes = new Set<number>();
@@ -63,6 +66,9 @@ let currentStatus: IMarlinStatus = {
     sentCommands: 0,
     portPath: null
 };
+let gcodeFilename = DEFAULT_GCODE_FILENAME;
+let wasGCodePaneStacked = false;
+let gcodeToastTimer: number | null = null;
 
 window.addEventListener('DOMContentLoaded', () => {
     try {
@@ -105,9 +111,25 @@ function bindEvents(): void {
         previewView.colorMode = byId<HTMLSelectElement>('color-mode').value as TColorMode;
         requestPreviewDraw(true);
     });
+    byId<HTMLButtonElement>('download-gcode').addEventListener('click', downloadGCodePreview);
+    byId<HTMLButtonElement>('copy-gcode').addEventListener('click', copyGCodePreview);
+    const gcodeFilenameInput = byId<HTMLInputElement>('gcode-filename');
+    gcodeFilenameInput.value = gcodeFilename;
+    gcodeFilenameInput.addEventListener('input', () => {
+        gcodeFilename = gcodeFilenameInput.value;
+    });
+    gcodeFilenameInput.addEventListener('change', () => {
+        gcodeFilename = normalizeGCodeFilename(gcodeFilenameInput.value);
+        gcodeFilenameInput.value = gcodeFilename;
+    });
     bindCanvasEvents();
     updateLayerModeControls();
-    window.addEventListener('resize', () => requestPreviewDraw(true));
+    updateGCodePanel(null);
+    syncResponsiveGCodePanel();
+    window.addEventListener('resize', () => {
+        syncResponsiveGCodePanel();
+        requestPreviewDraw(true);
+    });
 }
 
 async function generatePreview(): Promise<void> {
@@ -282,6 +304,7 @@ function renderPreview(preview: IPreviewResult | null): void {
     summary.innerHTML = '';
     warnings.innerHTML = '';
     layerTableBody.innerHTML = '';
+    updateGCodePanel(preview);
 
     if (!preview) {
         setPreviewControlsEnabled(false);
@@ -791,12 +814,15 @@ function mod360(value: number): number {
 }
 
 function setPreviewControlsEnabled(enabled: boolean): void {
+    const hasPreview = enabled && currentPreview !== null;
     byId<HTMLButtonElement>('fit-preview').disabled = !enabled;
     byId<HTMLButtonElement>('actual-size-preview').disabled = !enabled;
     byId<HTMLButtonElement>('zoom-in-preview').disabled = !enabled;
     byId<HTMLButtonElement>('zoom-out-preview').disabled = !enabled;
     byId<HTMLButtonElement>('show-all-layers').disabled = !enabled;
     byId<HTMLSelectElement>('color-mode').disabled = !enabled;
+    byId<HTMLButtonElement>('download-gcode').disabled = !hasPreview;
+    byId<HTMLButtonElement>('copy-gcode').disabled = !hasPreview;
 }
 
 function resetLayerVisibility(preview: IPreviewResult): void {
@@ -1151,6 +1177,128 @@ function setMachineMessage(message: string): void {
 function setArtifactPaths(result: ISaveArtifactsResult | null): void {
     const paths = byId<HTMLPreElement>('paths');
     paths.textContent = result ? [result.windPath, result.gcodePath, result.plotPath].filter(Boolean).join('\n') : '';
+}
+
+function updateGCodePanel(preview: IPreviewResult | null): void {
+    const gcodePreview = byId<HTMLPreElement>('gcode-preview');
+    const downloadButton = byId<HTMLButtonElement>('download-gcode');
+    const copyButton = byId<HTMLButtonElement>('copy-gcode');
+
+    if (!preview) {
+        gcodePreview.textContent = 'No G-code generated';
+        gcodePreview.classList.add('empty');
+        downloadButton.disabled = true;
+        copyButton.disabled = true;
+        clearGCodeToast();
+        return;
+    }
+
+    gcodePreview.textContent = preview.plan.gcode.join('\n');
+    gcodePreview.classList.remove('empty');
+    downloadButton.disabled = false;
+    copyButton.disabled = false;
+}
+
+function syncResponsiveGCodePanel(): void {
+    const gcodePane = byId<HTMLDetailsElement>('gcode-pane');
+    const stacked = window.innerWidth <= GCODE_STACK_BREAKPOINT_PX;
+
+    if (stacked && !wasGCodePaneStacked) {
+        gcodePane.open = false;
+    } else if (!stacked) {
+        gcodePane.open = true;
+    }
+
+    wasGCodePaneStacked = stacked;
+}
+
+async function downloadGCodePreview(): Promise<void> {
+    if (!currentPreview) {
+        return;
+    }
+
+    const normalizedFilename = normalizeGCodeFilename(gcodeFilename);
+    gcodeFilename = normalizedFilename;
+    byId<HTMLInputElement>('gcode-filename').value = normalizedFilename;
+
+    const gcodeText = `${currentPreview.plan.gcode.join('\n')}\n`;
+    const blob = new Blob([gcodeText], { type: 'text/plain;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = normalizedFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(downloadUrl);
+}
+
+async function copyGCodePreview(): Promise<void> {
+    if (!currentPreview) {
+        return;
+    }
+
+    const gcodeText = currentPreview.plan.gcode.join('\n');
+    try {
+        await writeTextToClipboard(gcodeText);
+        showGCodeToast('G-code copied to clipboard.');
+    } catch (error) {
+        setRecipeMessage(getErrorMessage(error));
+    }
+}
+
+function normalizeGCodeFilename(filename: string): string {
+    const sanitized = filename
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .replace(/\s+/g, ' ');
+    const withFallback = sanitized || DEFAULT_GCODE_FILENAME;
+    return /\.gcode$/i.test(withFallback) ? withFallback : `${withFallback}.gcode`;
+}
+
+function clearGCodeToast(): void {
+    const toast = byId<HTMLDivElement>('gcode-toast');
+    toast.classList.remove('visible');
+    toast.textContent = '';
+    if (gcodeToastTimer !== null) {
+        window.clearTimeout(gcodeToastTimer);
+        gcodeToastTimer = null;
+    }
+}
+
+function showGCodeToast(message: string): void {
+    clearGCodeToast();
+    const toast = byId<HTMLDivElement>('gcode-toast');
+    toast.textContent = message;
+    toast.classList.add('visible');
+    gcodeToastTimer = window.setTimeout(() => {
+        toast.classList.remove('visible');
+        toast.textContent = '';
+        gcodeToastTimer = null;
+    }, 1800);
+}
+
+async function writeTextToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.setAttribute('readonly', 'true');
+    textArea.style.opacity = '0';
+    textArea.style.pointerEvents = 'none';
+    textArea.style.position = 'fixed';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    const copied = document.execCommand('copy');
+    textArea.remove();
+    if (!copied) {
+        throw new Error('Could not copy G-code to clipboard.');
+    }
 }
 
 function appendSerialLog(message: string): void {

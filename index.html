@@ -181,9 +181,11 @@
       }
 
       .preview-grid {
+        align-items: start;
         display: grid;
         gap: 18px;
-        grid-template-columns: minmax(420px, 1fr) 280px;
+        grid-template-areas: 'preview gcode summary';
+        grid-template-columns: minmax(420px, 1fr) minmax(320px, 420px) 280px;
       }
 
       .preview-section {
@@ -192,7 +194,119 @@
       }
 
       .preview-pane {
+        grid-area: preview;
         min-width: 0;
+      }
+
+      .gcode-pane {
+        background: #fbfbf8;
+        border: 1px solid #d8ddd2;
+        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        grid-area: gcode;
+        height: 430px;
+        margin-top: 0;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .gcode-pane > summary {
+        display: none;
+      }
+
+      .gcode-panel-body {
+        display: block;
+        min-height: 0;
+        overflow: hidden;
+        padding: 10px;
+      }
+
+      .gcode-toolbar {
+        align-items: center;
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+      }
+
+      .gcode-filename-input {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .gcode-toolbar button {
+        white-space: nowrap;
+      }
+
+      .gcode-preview {
+        display: block;
+        height: calc(430px - 132px);
+        margin-top: 10px;
+        max-height: none;
+        min-height: 220px;
+        overflow-x: auto;
+        overflow-y: auto;
+        white-space: pre;
+      }
+
+      .gcode-preview.empty {
+        color: #9ba7a0;
+      }
+
+      .gcode-toast {
+        color: #2f6f73;
+        font-size: 12px;
+        min-height: 16px;
+        opacity: 0;
+        padding-top: 6px;
+        transition: opacity 140ms ease-in;
+      }
+
+      .gcode-toast.visible {
+        opacity: 1;
+      }
+
+      .preview-summary {
+        grid-area: summary;
+        min-width: 0;
+      }
+
+      @media (max-width: 1500px) {
+        .preview-grid {
+          grid-template-areas:
+            'preview summary'
+            'gcode summary';
+          grid-template-columns: minmax(420px, 1fr) 280px;
+        }
+
+        .gcode-pane {
+          height: auto;
+        }
+
+        .gcode-pane[open] {
+          height: 430px;
+        }
+
+        .gcode-pane[open] .gcode-preview {
+          height: calc(430px - 164px);
+        }
+
+        .gcode-pane > summary {
+          border-bottom: 1px solid #d8ddd2;
+          display: list-item;
+          margin: 0;
+          padding: 10px;
+        }
+      }
+
+      @media (max-width: 1200px) {
+        .preview-grid {
+          grid-template-areas:
+            'preview'
+            'gcode'
+            'summary';
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
 
       .preview-toolbar {
@@ -554,7 +668,19 @@
                 <div class="preview-tooltip" id="preview-tooltip"></div>
               </div>
             </div>
-            <div>
+            <details id="gcode-pane" class="gcode-pane" open>
+              <summary>G-code</summary>
+              <div class="gcode-panel-body">
+                <div class="gcode-toolbar">
+                  <input id="gcode-filename" class="gcode-filename-input" type="text" value="tube.gcode" />
+                  <button id="download-gcode" class="secondary" disabled>Download</button>
+                  <button id="copy-gcode" class="secondary" disabled>Copy</button>
+                </div>
+                <pre id="gcode-preview" class="gcode-preview empty">No G-code generated</pre>
+                <div id="gcode-toast" class="gcode-toast" aria-live="polite"></div>
+              </div>
+            </details>
+            <div class="preview-summary">
               <div class="metric-grid" id="summary"></div>
               <ul class="warnings" id="warnings"></ul>
               <pre id="paths"></pre>
