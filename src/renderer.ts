@@ -401,20 +401,29 @@ function fitPreview(): void {
     const canvas = byId<HTMLCanvasElement>('preview-canvas');
     const rect = canvas.getBoundingClientRect();
     const windLength = currentPreview.recipe.windParameters.mandrelParameters.windLength;
+    const circumference = getPreviewCircumference();
     const paddingLeft = 72;
     const paddingRight = 28;
     const paddingTop = 28;
     const paddingBottom = 54;
-    previewView.scale = Math.max(0.1, Math.min((rect.width - paddingLeft - paddingRight) / windLength, (rect.height - paddingTop - paddingBottom) / 360));
+    previewView.scale = Math.max(0.1, Math.min((rect.width - paddingLeft - paddingRight) / windLength, (rect.height - paddingTop - paddingBottom) / circumference));
     previewView.offsetX = paddingLeft + ((rect.width - paddingLeft - paddingRight) - windLength * previewView.scale) / 2;
-    previewView.offsetY = paddingTop + ((rect.height - paddingTop - paddingBottom) - 360 * previewView.scale) / 2;
+    previewView.offsetY = paddingTop + ((rect.height - paddingTop - paddingBottom) - circumference * previewView.scale) / 2;
     requestPreviewDraw(true);
 }
 
 function actualSizePreview(): void {
+    if (!currentPreview) {
+        return;
+    }
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const circumference = getPreviewCircumference();
+    const paddingTop = 28;
+    const paddingBottom = 54;
     previewView.scale = 1;
     previewView.offsetX = 72;
-    previewView.offsetY = 24;
+    previewView.offsetY = paddingTop + ((rect.height - paddingTop - paddingBottom) - circumference) / 2;
     requestPreviewDraw(true);
 }
 
@@ -424,10 +433,10 @@ function zoomPreview(factor: number, originX?: number, originY?: number): void {
     const x = typeof originX === 'number' ? originX : rect.width / 2;
     const y = typeof originY === 'number' ? originY : rect.height / 2;
     const worldX = (x - previewView.offsetX) / previewView.scale;
-    const worldY = (y - previewView.offsetY) / previewView.scale;
+    const worldYMM = (y - previewView.offsetY) / previewView.scale;
     previewView.scale = Math.max(0.05, Math.min(40, previewView.scale * factor));
     previewView.offsetX = x - worldX * previewView.scale;
-    previewView.offsetY = y - worldY * previewView.scale;
+    previewView.offsetY = y - worldYMM * previewView.scale;
     requestPreviewDraw(true);
 }
 
@@ -548,6 +557,7 @@ function invalidatePreviewLayerCache(): void {
 
 function drawPreviewGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     const windLength = currentPreview ? currentPreview.recipe.windParameters.mandrelParameters.windLength : 0;
+    const circumference = getPreviewCircumference();
     ctx.strokeStyle = '#dde3d8';
     ctx.lineWidth = 1;
     for (const y of [0, 90, 180, 270, 360]) {
@@ -559,7 +569,7 @@ function drawPreviewGrid(ctx: CanvasRenderingContext2D, width: number, height: n
     }
     drawLengthMarkers(ctx, windLength, height);
     ctx.strokeStyle = '#c6cec1';
-    ctx.strokeRect(previewToScreenX(0), previewToScreenY(0), windLength * previewView.scale, 360 * previewView.scale);
+    ctx.strokeRect(previewToScreenX(0), previewToScreenY(0), windLength * previewView.scale, circumference * previewView.scale);
     ctx.fillStyle = '#68727a';
     ctx.font = '12px Arial';
     ctx.textAlign = 'right';
@@ -805,7 +815,19 @@ function previewToScreenX(x: number): number {
 }
 
 function previewToScreenY(y: number): number {
-    return y * previewView.scale + previewView.offsetY;
+    return previewDegreesToSurfaceMM(y) * previewView.scale + previewView.offsetY;
+}
+
+function previewDegreesToSurfaceMM(degrees: number): number {
+    return (degrees / 360) * getPreviewCircumference();
+}
+
+function getPreviewCircumference(): number {
+    if (!currentPreview) {
+        return 360;
+    }
+    const diameter = currentPreview.recipe.windParameters.mandrelParameters.diameter;
+    return Math.PI * diameter;
 }
 
 function mod360(value: number): number {
