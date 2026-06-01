@@ -18,6 +18,8 @@ export interface ITubeRecipeInput {
     lockDegrees: number;
     leadInMM: number;
     leadOutDegrees: number;
+    fixedDeliveryHead?: boolean;
+    fixedDeliveryHeadPosition?: number;
 }
 
 export interface IGeneratedRecipe {
@@ -120,6 +122,10 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
         errors.push('Strength preset must be light, medium, or heavy.');
     }
 
+    if (input.fixedDeliveryHead && !Number.isFinite(input.fixedDeliveryHeadPosition)) {
+        errors.push('Fixed delivery head position must be a finite number.');
+    }
+
     return {
         valid: errors.length === 0,
         errors
@@ -172,7 +178,11 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
                 width: input.towWidth,
                 thickness: input.towThickness
             },
-            defaultFeedRate: input.defaultFeedRate
+            defaultFeedRate: input.defaultFeedRate,
+            deliveryHead: input.fixedDeliveryHead ? {
+                mode: 'fixed',
+                positionDegrees: input.fixedDeliveryHeadPosition as number
+            } : undefined
         },
         summary: {
             layerMode: input.layerMode,

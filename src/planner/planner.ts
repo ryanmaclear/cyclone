@@ -8,7 +8,7 @@ import type { IWindParameters,
 import { ECoordinateAxes } from './types';
 import { ELayerType } from './types';
 import { WinderMachine } from './machine';
-import { radToDeg, degToRad } from '../helpers'; 
+import { radToDeg, degToRad, stripPrecision } from '../helpers'; 
 
 export interface IPlannedLayerSummary {
     layerIndex: number;
@@ -33,14 +33,15 @@ export function planWind(windingParameters: IWindParameters, verboseOutput = fal
 
 export function planWindDetailed(windingParameters: IWindParameters, verboseOutput = false, logProgress = false): IPlanWindResult {
 
-    const machine = new WinderMachine(windingParameters.mandrelParameters.diameter, verboseOutput);
+    const deliveryHeadParameters = windingParameters.deliveryHead || {mode: 'automatic'};
+    const machine = new WinderMachine(windingParameters.mandrelParameters.diameter, verboseOutput, deliveryHeadParameters);
 
     const headerParameters = {
         mandrel: windingParameters.mandrelParameters,
         tow: windingParameters.towParameters
     }
     machine.insertComment(`Parameters ${JSON.stringify(headerParameters)}`);
-    machine.addRawGCode('G0 X0 Y0 Z0');
+    machine.addRawGCode(deliveryHeadParameters.mode === 'fixed' ? `G0 X0 Y0 Z${stripPrecision(deliveryHeadParameters.positionDegrees)}` : 'G0 X0 Y0 Z0');
     machine.setFeedRate(windingParameters.defaultFeedRate);
     // TODO: Run other setup stuff
 

@@ -292,7 +292,9 @@ function readRecipeInput(): ITubeRecipeInput {
         defaultFeedRate: readNumber('feed-rate'),
         lockDegrees: readNumber('lock-degrees'),
         leadInMM: readNumber('lead-in'),
-        leadOutDegrees: readNumber('lead-out')
+        leadOutDegrees: readNumber('lead-out'),
+        fixedDeliveryHead: byId<HTMLInputElement>('fixed-delivery-head').checked,
+        fixedDeliveryHeadPosition: 0
     };
 }
 

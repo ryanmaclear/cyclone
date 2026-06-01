@@ -108,6 +108,18 @@
         width: 16px;
       }
 
+      .checkbox-option {
+        align-items: center;
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+      }
+
+      .checkbox-option input {
+        height: 16px;
+        width: 16px;
+      }
+
       .layer-mode-fields {
         display: grid;
         gap: 12px;
@@ -606,6 +618,10 @@
                 <label>
                   Lead-out deg
                   <input id="lead-out" type="number" min="0" step="1" value="90" />
+                </label>
+                <label class="checkbox-option">
+                  <input id="fixed-delivery-head" type="checkbox" />
+                  Disable Delivery Head
                 </label>
               </div>
             </details>

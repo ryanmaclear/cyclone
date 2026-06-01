@@ -12,6 +12,10 @@ export interface ITowParameters {
     thickness: number;
 }
 
+export type TDeliveryHeadParameters =
+    | {mode: 'automatic'}
+    | {mode: 'fixed'; positionDegrees: number};
+
 /**
  * Layer-specific parameters
  */
@@ -61,6 +65,7 @@ export interface IWindParameters {
     mandrelParameters: IMandrelParameters;
     towParameters: ITowParameters;
     defaultFeedRate: number;
+    deliveryHead?: TDeliveryHeadParameters;
 }
 
 

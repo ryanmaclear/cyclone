@@ -1,4 +1,4 @@
-import { TCoordinate, ECoordinateAxes, AxisLookup, TCoordinateAxes, IPreviewContext, IPreviewSegment } from './types';
+import { TCoordinate, ECoordinateAxes, AxisLookup, TCoordinateAxes, IPreviewContext, IPreviewSegment, TDeliveryHeadParameters } from './types';
 import { stripPrecision } from '../helpers';
 import { interpolateCoordinates, serializeCoordinate } from './helpers';
 
@@ -16,11 +16,17 @@ export class WinderMachine {
     private totalTowLengthMM = 0;
     private lastPosition: TCoordinateAxes;
     private mandrelDiameter: number;
+    private deliveryHeadParameters: TDeliveryHeadParameters;
 
-    constructor(mandrelDiameter: number, verboseOutput = false) {
-        this.lastPosition = {[ECoordinateAxes.CARRIAGE]: 0, [ECoordinateAxes.MANDREL]: 0, [ECoordinateAxes.DELIVERY_HEAD]: 0}
+    constructor(mandrelDiameter: number, verboseOutput = false, deliveryHeadParameters: TDeliveryHeadParameters = {mode: 'automatic'}) {
+        this.lastPosition = {
+            [ECoordinateAxes.CARRIAGE]: 0,
+            [ECoordinateAxes.MANDREL]: 0,
+            [ECoordinateAxes.DELIVERY_HEAD]: deliveryHeadParameters.mode === 'fixed' ? deliveryHeadParameters.positionDegrees : 0
+        }
         this.mandrelDiameter = mandrelDiameter;
         this.verboseOutput = verboseOutput;
+        this.deliveryHeadParameters = deliveryHeadParameters;
     }
 
     public getGCode(): string[] {
@@ -45,16 +51,20 @@ export class WinderMachine {
     }
 
     public move(position: TCoordinate): void {
+        const filteredPosition = this.filterDeliveryHeadPosition(position);
+        if (Object.keys(filteredPosition).length === 0) {
+            return;
+        }
         // Construct a fully-specified destination coordinate
         // Start with the old position, and replace any values specified in the new one
-        const completeEndPosition = {...this.lastPosition, ...position};
+        const completeEndPosition = {...this.lastPosition, ...filteredPosition};
         const doSegmentMove = this.lastPosition[ECoordinateAxes.CARRIAGE] !== completeEndPosition[ECoordinateAxes.CARRIAGE];
         // If we don't need to divide the move into multiple segments, run it as just one.
         if (!doSegmentMove) {
             if (this.verboseOutput) {
                 this.insertComment(`Move from ${serializeCoordinate(this.lastPosition)} to ${serializeCoordinate(completeEndPosition)} as a simple move`);
             }
-            return this.moveSegment(position);
+            return this.moveSegment(filteredPosition as TCoordinate);
         }
         // For segmented moves, divide the total move so each piece has ~1mm of carriage movement
         const numSegments = Math.round(Math.abs(this.lastPosition[ECoordinateAxes.CARRIAGE] - completeEndPosition[ECoordinateAxes.CARRIAGE])) + 1;
@@ -62,17 +72,21 @@ export class WinderMachine {
             this.insertComment(`Move from ${serializeCoordinate(this.lastPosition)} to ${serializeCoordinate(completeEndPosition)} in ${numSegments} segments`);
         }
         for (const intermediatePosition of interpolateCoordinates(this.lastPosition, completeEndPosition, numSegments)) {
-            this.moveSegment(intermediatePosition);
+            this.moveSegment(this.filterDeliveryHeadPosition(intermediatePosition) as TCoordinate);
         }
     }
 
     public setPosition(position: TCoordinate): void {
+        const filteredPosition = this.filterDeliveryHeadPosition(position);
+        if (Object.keys(filteredPosition).length === 0) {
+            return;
+        }
         let command = 'G92';
-        for (const axis of Object.keys(position)) {
+        for (const axis of Object.keys(filteredPosition)) {
             const rawAxis = AxisLookup[axis as ECoordinateAxes];
-            command += ` ${rawAxis}${stripPrecision(position[axis as ECoordinateAxes])}`;
+            command += ` ${rawAxis}${stripPrecision(filteredPosition[axis as ECoordinateAxes])}`;
 
-            this.lastPosition[axis as ECoordinateAxes] = position[axis as ECoordinateAxes];
+            this.lastPosition[axis as ECoordinateAxes] = filteredPosition[axis as ECoordinateAxes] as number;
         }
         this.gcode.push(command);
     }
@@ -163,6 +177,16 @@ export class WinderMachine {
         this.totalTowLengthMM += towLengthMMSq ** 0.5;
 
         this.gcode.push(command);
+    }
+
+    private filterDeliveryHeadPosition(position: TCoordinateAxes | TCoordinate): Partial<TCoordinateAxes> {
+        if (this.deliveryHeadParameters.mode !== 'fixed') {
+            return position;
+        }
+
+        const filteredPosition = {...position};
+        delete filteredPosition[ECoordinateAxes.DELIVERY_HEAD];
+        return filteredPosition;
     }
 
     private recordPreviewSegment(startPosition: TCoordinateAxes, endPosition: TCoordinateAxes): void {

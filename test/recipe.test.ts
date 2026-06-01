@@ -37,6 +37,17 @@ assert.deepStrictEqual(mediumRecipe.windParameters.layers.map((layer) => layer.w
     ELayerType.HELICAL,
     ELayerType.HOOP
 ]);
+assert.strictEqual(mediumRecipe.windParameters.deliveryHead, undefined);
+
+const fixedDeliveryHeadRecipe = generateTubeRecipe({
+    ...baseInput,
+    fixedDeliveryHead: true,
+    fixedDeliveryHeadPosition: 12.5
+});
+assert.deepStrictEqual(fixedDeliveryHeadRecipe.windParameters.deliveryHead, {
+    mode: 'fixed',
+    positionDegrees: 12.5
+});
 
 const heavyOverrideRecipe = generateTubeRecipe({
     ...baseInput,
@@ -105,16 +116,30 @@ const invalidRecipe = validateTubeRecipeInput({
 assert.strictEqual(invalidRecipe.valid, false);
 assert.ok(invalidRecipe.errors.length >= 3);
 
+const invalidFixedDeliveryHeadRecipe = validateTubeRecipeInput({
+    ...baseInput,
+    fixedDeliveryHead: true,
+    fixedDeliveryHeadPosition: Number.NaN
+});
+assert.strictEqual(invalidFixedDeliveryHeadRecipe.valid, false);
+assert.ok(invalidFixedDeliveryHeadRecipe.errors.some((error) => error.includes('Fixed delivery head position')));
+
 const plannedRecipe = planWindDetailed(mediumRecipe.windParameters, false, false);
 assert.ok(plannedRecipe.gcode.length > 0);
 assert.ok(plannedRecipe.totalTowUseM > 0);
 assert.ok(plotGCode(plannedRecipe.gcode));
 assert.deepStrictEqual(plannedRecipe.gcode, planWind(mediumRecipe.windParameters, false));
+assert.ok(plannedRecipe.gcode.filter((command) => /^G0\b.*\bZ/.test(command)).length > 1);
 assert.ok(plannedRecipe.previewSegments.length > 0);
 assert.ok(plannedRecipe.previewSegments.every((segment) => segment.start.x !== segment.end.x || segment.start.y !== segment.end.y));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'helical-pass' && segment.passDirection === 'there'));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'helical-pass' && segment.passDirection === 'back'));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'lock'));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.layerIndex === 3 && segment.groupKind === 'hoop-pass'));
+
+const fixedDeliveryHeadPlan = planWindDetailed(fixedDeliveryHeadRecipe.windParameters, false, false);
+const fixedDeliveryHeadZCommands = fixedDeliveryHeadPlan.gcode.filter((command) => /^G0\b.*\bZ/.test(command));
+assert.deepStrictEqual(fixedDeliveryHeadZCommands, ['G0 X0 Y0 Z12.5']);
+assert.ok(!fixedDeliveryHeadPlan.gcode.some((command) => command === 'G0'));
 
 console.log('Recipe tests passed');
