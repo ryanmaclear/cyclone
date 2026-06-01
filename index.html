@@ -182,15 +182,18 @@
 
       .preview-grid {
         align-items: start;
-        display: grid;
+        display: contents;
         gap: 18px;
-        grid-template-areas: 'preview gcode summary';
-        grid-template-columns: minmax(420px, 1fr) minmax(320px, 420px) 280px;
       }
 
       .preview-section {
+        align-items: start;
         display: grid;
-        gap: 16px;
+        gap: 18px;
+        grid-template-areas:
+          'preview gcode summary'
+          'layers layers layers';
+        grid-template-columns: minmax(420px, 1fr) minmax(320px, 420px) 280px;
       }
 
       .preview-pane {
@@ -266,17 +269,23 @@
         opacity: 1;
       }
 
+      .preview-section > table {
+        grid-area: layers;
+      }
+
       .preview-summary {
         grid-area: summary;
         min-width: 0;
       }
 
       @media (max-width: 1500px) {
-        .preview-grid {
+        .preview-section {
           grid-template-areas:
-            'preview summary'
-            'gcode summary';
-          grid-template-columns: minmax(420px, 1fr) 280px;
+            'preview'
+            'layers'
+            'summary'
+            'gcode';
+          grid-template-columns: minmax(0, 1fr);
         }
 
         .gcode-pane {
@@ -300,11 +309,12 @@
       }
 
       @media (max-width: 1200px) {
-        .preview-grid {
+        .preview-section {
           grid-template-areas:
             'preview'
-            'gcode'
-            'summary';
+            'layers'
+            'summary'
+            'gcode';
           grid-template-columns: minmax(0, 1fr);
         }
       }
