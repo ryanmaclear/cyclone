@@ -20,6 +20,7 @@ export interface ITubeRecipeInput {
     leadOutDegrees: number;
     fixedDeliveryHead?: boolean;
     fixedDeliveryHeadPosition?: number;
+    disableSoftEndstops?: boolean;
 }
 
 export interface IGeneratedRecipe {
@@ -182,7 +183,8 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
             deliveryHead: input.fixedDeliveryHead ? {
                 mode: 'fixed',
                 positionDegrees: input.fixedDeliveryHeadPosition as number
-            } : undefined
+            } : undefined,
+            disableSoftEndstops: input.disableSoftEndstops || undefined
         },
         summary: {
             layerMode: input.layerMode,

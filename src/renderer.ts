@@ -294,7 +294,8 @@ function readRecipeInput(): ITubeRecipeInput {
         leadInMM: readNumber('lead-in'),
         leadOutDegrees: readNumber('lead-out'),
         fixedDeliveryHead: byId<HTMLInputElement>('fixed-delivery-head').checked,
-        fixedDeliveryHeadPosition: 0
+        fixedDeliveryHeadPosition: 0,
+        disableSoftEndstops: byId<HTMLInputElement>('disable-soft-endstops').checked
     };
 }
 

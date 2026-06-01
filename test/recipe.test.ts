@@ -38,6 +38,7 @@ assert.deepStrictEqual(mediumRecipe.windParameters.layers.map((layer) => layer.w
     ELayerType.HOOP
 ]);
 assert.strictEqual(mediumRecipe.windParameters.deliveryHead, undefined);
+assert.strictEqual(mediumRecipe.windParameters.disableSoftEndstops, undefined);
 
 const fixedDeliveryHeadRecipe = generateTubeRecipe({
     ...baseInput,
@@ -48,6 +49,12 @@ assert.deepStrictEqual(fixedDeliveryHeadRecipe.windParameters.deliveryHead, {
     mode: 'fixed',
     positionDegrees: 12.5
 });
+
+const disabledSoftEndstopsRecipe = generateTubeRecipe({
+    ...baseInput,
+    disableSoftEndstops: true
+});
+assert.strictEqual(disabledSoftEndstopsRecipe.windParameters.disableSoftEndstops, true);
 
 const heavyOverrideRecipe = generateTubeRecipe({
     ...baseInput,
@@ -130,6 +137,7 @@ assert.ok(plannedRecipe.totalTowUseM > 0);
 assert.ok(plotGCode(plannedRecipe.gcode));
 assert.deepStrictEqual(plannedRecipe.gcode, planWind(mediumRecipe.windParameters, false));
 assert.ok(plannedRecipe.gcode.filter((command) => /^G0\b.*\bZ/.test(command)).length > 1);
+assert.ok(!plannedRecipe.gcode.includes('M211 S0'));
 assert.ok(plannedRecipe.previewSegments.length > 0);
 assert.ok(plannedRecipe.previewSegments.every((segment) => segment.start.x !== segment.end.x || segment.start.y !== segment.end.y));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'helical-pass' && segment.passDirection === 'there'));
@@ -141,5 +149,10 @@ const fixedDeliveryHeadPlan = planWindDetailed(fixedDeliveryHeadRecipe.windParam
 const fixedDeliveryHeadZCommands = fixedDeliveryHeadPlan.gcode.filter((command) => /^G0\b.*\bZ/.test(command));
 assert.deepStrictEqual(fixedDeliveryHeadZCommands, ['G0 X0 Y0 Z12.5']);
 assert.ok(!fixedDeliveryHeadPlan.gcode.some((command) => command === 'G0'));
+
+const disabledSoftEndstopsPlan = planWindDetailed(disabledSoftEndstopsRecipe.windParameters, false, false);
+const feedRateIndex = disabledSoftEndstopsPlan.gcode.findIndex((command) => command === 'G0 F9000');
+assert.ok(feedRateIndex >= 0);
+assert.strictEqual(disabledSoftEndstopsPlan.gcode[feedRateIndex + 1], 'M211 S0');
 
 console.log('Recipe tests passed');

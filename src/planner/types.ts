@@ -66,6 +66,7 @@ export interface IWindParameters {
     towParameters: ITowParameters;
     defaultFeedRate: number;
     deliveryHead?: TDeliveryHeadParameters;
+    disableSoftEndstops?: boolean;
 }
 
 

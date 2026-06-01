@@ -43,6 +43,9 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
     machine.insertComment(`Parameters ${JSON.stringify(headerParameters)}`);
     machine.addRawGCode(deliveryHeadParameters.mode === 'fixed' ? `G0 X0 Y0 Z${stripPrecision(deliveryHeadParameters.positionDegrees)}` : 'G0 X0 Y0 Z0');
     machine.setFeedRate(windingParameters.defaultFeedRate);
+    if (windingParameters.disableSoftEndstops) {
+        machine.addRawGCode('M211 S0');
+    }
     // TODO: Run other setup stuff
 
     let encounteredTerminalLayer = false;
