@@ -41,6 +41,7 @@ export interface IMarlinStatus {
     paused: boolean;
     pausing: boolean;
     resuming: boolean;
+    stopping: boolean;
     queuedCommands: number;
     totalCommands: number;
     sentCommands: number;

@@ -61,6 +61,7 @@ let currentStatus: IMarlinStatus = {
     paused: false,
     pausing: false,
     resuming: false,
+    stopping: false,
     queuedCommands: 0,
     totalCommands: 0,
     sentCommands: 0,
@@ -278,9 +279,14 @@ async function resumeMachine(): Promise<void> {
 }
 
 async function clearQueue(): Promise<void> {
-    currentStatus = await cyclone.clearMachineQueue();
-    renderMachineStatus();
-    updateRunControls();
+    try {
+        currentStatus = await cyclone.clearMachineQueue();
+        renderMachineStatus();
+        updateRunControls();
+        setMachineMessage('Run stopping.');
+    } catch (error) {
+        setMachineMessage(getErrorMessage(error));
+    }
 }
 
 function readRecipeInput(): ITubeRecipeInput {
@@ -1169,13 +1175,14 @@ function updateRunControls(): void {
     const hasPreview = currentPreview !== null;
     const armed = byId<HTMLInputElement>('arm-run').checked;
     const runInProgress = currentStatus.totalCommands > 0 && currentStatus.sentCommands < currentStatus.totalCommands;
+    const canStopRun = runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming || currentStatus.stopping;
 
     byId<HTMLButtonElement>('connect').disabled = connected;
     byId<HTMLButtonElement>('disconnect').disabled = !connected;
-    byId<HTMLButtonElement>('run').disabled = !connected || !hasPreview || !armed || runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming;
-    byId<HTMLButtonElement>('pause').disabled = !connected || !runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming;
-    byId<HTMLButtonElement>('resume').disabled = !connected || !currentStatus.paused || currentStatus.resuming;
-    byId<HTMLButtonElement>('clear-queue').disabled = !connected;
+    byId<HTMLButtonElement>('run').disabled = !connected || !hasPreview || !armed || canStopRun;
+    byId<HTMLButtonElement>('pause').disabled = !connected || !runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming || currentStatus.stopping;
+    byId<HTMLButtonElement>('resume').disabled = !connected || !currentStatus.paused || currentStatus.resuming || currentStatus.stopping;
+    byId<HTMLButtonElement>('clear-queue').disabled = !connected || !canStopRun;
 }
 
 function addMetric(container: HTMLElement, label: string, value: string): void {

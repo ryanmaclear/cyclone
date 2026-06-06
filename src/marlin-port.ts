@@ -19,6 +19,7 @@ export class MarlinPort {
     private pausing = false;
     private paused = false;
     private resuming = false;
+    private stopping = false;
     private totalCommands = 0;
     private sentCommands = 0;
 
@@ -66,6 +67,7 @@ export class MarlinPort {
         this.pausing = false;
         this.paused = false;
         this.resuming = false;
+        this.stopping = false;
         this.totalCommands = 0;
         this.sentCommands = 0;
 
@@ -80,6 +82,7 @@ export class MarlinPort {
         this.pausing = false;
         this.paused = false;
         this.resuming = false;
+        this.stopping = false;
 
         if (!this.port || !this.port.isOpen) {
             this.reset();
@@ -118,6 +121,40 @@ export class MarlinPort {
 
     public clearQueue(): void {
         this.commandQueue = [];
+        if (this.paused || this.pausing) {
+            this.stopping = true;
+            this.pausing = false;
+            this.paused = false;
+            this.resuming = true;
+            this.log('Stopping run.');
+            this.writeCommand('M108');
+            this.emitStatus();
+            return void 0;
+        }
+        if (this.resuming) {
+            this.stopping = true;
+            this.log('Stopping run.');
+            this.emitStatus();
+            return void 0;
+        }
+        if (this.hasCommandWaiting) {
+            this.stopping = true;
+            this.log('Stopping run after the active command completes.');
+            this.emitStatus();
+            return void 0;
+        }
+        this.completeStop();
+    }
+
+    private completeStop(): void {
+        this.commandQueue = [];
+        this.hasCommandWaiting = false;
+        this.pausing = false;
+        this.paused = false;
+        this.resuming = false;
+        this.stopping = false;
+        this.totalCommands = 0;
+        this.sentCommands = 0;
         this.emitStatus();
     }
 
@@ -175,6 +212,7 @@ export class MarlinPort {
             paused: this.paused,
             pausing: this.pausing,
             resuming: this.resuming,
+            stopping: this.stopping,
             queuedCommands: this.commandQueue.length,
             totalCommands: this.totalCommands,
             sentCommands: this.sentCommands,
@@ -186,6 +224,10 @@ export class MarlinPort {
         const line = rawLine.trim();
 
         if ( line === 'ok' ) {
+            if (this.stopping) {
+                this.completeStop();
+                return void 0;
+            }
             if (this.resuming) {
                 this.completeResume();
                 return void 0;
@@ -208,6 +250,10 @@ export class MarlinPort {
         }
 
         if ( line === '//action:notification 3D Printer Ready.') {
+            if (this.stopping) {
+                this.completeStop();
+                return void 0;
+            }
             if (!this.resuming) {
                 this.log('Saw resume response while not resuming!');
                 return void 0;
@@ -227,7 +273,7 @@ export class MarlinPort {
     }
 
     private tryNextCommand(): void {
-        if (this.hasCommandWaiting || this.commandQueue.length === 0 || this.paused || this.pausing || this.resuming) {
+        if (this.hasCommandWaiting || this.commandQueue.length === 0 || this.paused || this.pausing || this.resuming || this.stopping) {
             return void 0;
         }
         const commandToSend = this.commandQueue.shift();

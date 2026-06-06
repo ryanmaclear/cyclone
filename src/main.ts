@@ -27,6 +27,7 @@ const disconnectedStatus: IMarlinStatus = {
   paused: false,
   pausing: false,
   resuming: false,
+  stopping: false,
   queuedCommands: 0,
   totalCommands: 0,
   sentCommands: 0,
