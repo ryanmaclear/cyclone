@@ -258,15 +258,23 @@ async function runGCode(): Promise<void> {
 }
 
 async function pauseMachine(): Promise<void> {
-    currentStatus = await cyclone.pauseMachine();
-    renderMachineStatus();
-    updateRunControls();
+    try {
+        currentStatus = await cyclone.pauseMachine();
+        renderMachineStatus();
+        updateRunControls();
+    } catch (error) {
+        setMachineMessage(getErrorMessage(error));
+    }
 }
 
 async function resumeMachine(): Promise<void> {
-    currentStatus = await cyclone.resumeMachine();
-    renderMachineStatus();
-    updateRunControls();
+    try {
+        currentStatus = await cyclone.resumeMachine();
+        renderMachineStatus();
+        updateRunControls();
+    } catch (error) {
+        setMachineMessage(getErrorMessage(error));
+    }
 }
 
 async function clearQueue(): Promise<void> {
@@ -1160,12 +1168,13 @@ function updateRunControls(): void {
     const connected = currentStatus.connected;
     const hasPreview = currentPreview !== null;
     const armed = byId<HTMLInputElement>('arm-run').checked;
+    const runInProgress = currentStatus.totalCommands > 0 && currentStatus.sentCommands < currentStatus.totalCommands;
 
     byId<HTMLButtonElement>('connect').disabled = connected;
     byId<HTMLButtonElement>('disconnect').disabled = !connected;
-    byId<HTMLButtonElement>('run').disabled = !connected || !hasPreview || !armed;
-    byId<HTMLButtonElement>('pause').disabled = !connected || currentStatus.paused || currentStatus.pausing;
-    byId<HTMLButtonElement>('resume').disabled = !connected || (!currentStatus.paused && !currentStatus.pausing);
+    byId<HTMLButtonElement>('run').disabled = !connected || !hasPreview || !armed || runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming;
+    byId<HTMLButtonElement>('pause').disabled = !connected || !runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming;
+    byId<HTMLButtonElement>('resume').disabled = !connected || !currentStatus.paused || currentStatus.resuming;
     byId<HTMLButtonElement>('clear-queue').disabled = !connected;
 }
 

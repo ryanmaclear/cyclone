@@ -126,6 +126,10 @@ export class MarlinPort {
             this.log('Cannot pause when already paused or resuming!');
             return void 0;
         }
+        if (!this.hasCommandWaiting && this.commandQueue.length === 0) {
+            this.log('Cannot pause when no run is active!');
+            return void 0;
+        }
         this.pausing = true;
         this.writeCommand('M0');
         this.emitStatus();
@@ -148,6 +152,7 @@ export class MarlinPort {
             return void 0;
         }
         this.resuming = true;
+        this.log('Resuming machine.');
         this.writeCommand('M108');
         this.emitStatus();
     }
@@ -177,20 +182,28 @@ export class MarlinPort {
         };
     }
 
-    private processSerialResponseLine(line: string): void {
+    private processSerialResponseLine(rawLine: string): void {
+        const line = rawLine.trim();
+
         if ( line === 'ok' ) {
+            if (this.resuming) {
+                this.completeResume();
+                return void 0;
+            }
             this.hasCommandWaiting = false; 
             this.tryNextCommand();
             this.emitStatus();
             return void 0;
         }
 
-        if ( line === 'echo:busy: processing' || line == 'echo:busy: paused for user' ) {
+        if ( line === 'echo:busy: processing' ) {
             return void 0;
         }
 
-        if ( line === '//action:notification Click to Resume...') {
-            this.completePause();
+        if (this.isPauseResponse(line)) {
+            if (this.pausing) {
+                this.completePause();
+            }
             return void 0;
         }
 
@@ -207,8 +220,14 @@ export class MarlinPort {
         return void 0;
     }
 
+    private isPauseResponse(line: string): boolean {
+        return line === 'echo:busy: paused for user'
+            || line === '//action:notification Click to Resume...'
+            || line === 'Machine paused.';
+    }
+
     private tryNextCommand(): void {
-        if (this.hasCommandWaiting || this.commandQueue.length === 0 || this.paused) {
+        if (this.hasCommandWaiting || this.commandQueue.length === 0 || this.paused || this.pausing || this.resuming) {
             return void 0;
         }
         const commandToSend = this.commandQueue.shift();
