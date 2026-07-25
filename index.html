@@ -648,11 +648,11 @@
                 <div class="layer-mode-fields">
                   <label id="layer-count-field">
                     Layers
-                    <input id="layer-count" type="number" min="1" step="1" value="4" />
+                    <input id="layer-count" type="number" min="1" step="1" inputmode="numeric" pattern="[0-9]*" value="4" />
                   </label>
                   <label id="target-thickness-field" class="inactive-field">
                     Total thickness mm
-                    <input id="target-thickness" type="number" min="0.01" step="0.01" value="2" disabled />
+                    <input id="target-thickness" type="number" min="1" step="0.5" value="2" disabled />
                   </label>
                 </div>
               </div>

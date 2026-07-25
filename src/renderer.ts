@@ -108,8 +108,17 @@ function bindEvents(): void {
     byId<HTMLInputElement>('arm-run').addEventListener('change', updateRunControls);
     byId<HTMLSelectElement>('run-source').addEventListener('change', changeRunSource);
     byId<HTMLInputElement>('uploaded-gcode-file').addEventListener('change', loadUploadedGCode);
-    byId<HTMLInputElement>('layer-mode-count').addEventListener('change', updateLayerModeControls);
-    byId<HTMLInputElement>('layer-mode-thickness').addEventListener('change', updateLayerModeControls);
+    byId<HTMLInputElement>('layer-mode-count').addEventListener('change', changeLayerMode);
+    byId<HTMLInputElement>('layer-mode-thickness').addEventListener('change', changeLayerMode);
+    byId<HTMLLabelElement>('layer-count-field').addEventListener('pointerdown', () => selectLayerMode('count'));
+    byId<HTMLLabelElement>('target-thickness-field').addEventListener('pointerdown', () => selectLayerMode('thickness'));
+    byId<HTMLInputElement>('layer-count').addEventListener('beforeinput', preventNonIntegerLayerCountInput);
+    byId<HTMLInputElement>('layer-count').addEventListener('input', () => changeLayerCount(false));
+    byId<HTMLInputElement>('layer-count').addEventListener('change', () => changeLayerCount(true));
+    byId<HTMLInputElement>('target-thickness').addEventListener('input', () => syncLayerCountFromTargetThickness(false));
+    byId<HTMLInputElement>('target-thickness').addEventListener('change', () => syncLayerCountFromTargetThickness(true));
+    byId<HTMLInputElement>('tow-thickness').addEventListener('input', () => syncActiveLayerDimension(false));
+    byId<HTMLInputElement>('tow-thickness').addEventListener('change', () => syncActiveLayerDimension(true));
     byId<HTMLButtonElement>('fit-preview').addEventListener('click', fitPreview);
     byId<HTMLButtonElement>('actual-size-preview').addEventListener('click', actualSizePreview);
     byId<HTMLButtonElement>('zoom-in-preview').addEventListener('click', () => zoomPreview(1.25));
@@ -132,6 +141,7 @@ function bindEvents(): void {
     });
     bindCanvasEvents();
     updateLayerModeControls();
+    syncActiveLayerDimension(true);
     updateGCodePanel(null);
     syncResponsiveGCodePanel();
     window.addEventListener('resize', () => {
@@ -145,6 +155,7 @@ async function generatePreview(): Promise<void> {
     setArtifactPaths(null);
     byId<HTMLInputElement>('arm-run').checked = false;
     byId<HTMLButtonElement>('generate').disabled = true;
+    syncActiveLayerDimension(true);
 
     try {
         const preview = await cyclone.generatePreview({ recipeInput: readRecipeInput() });
@@ -429,6 +440,91 @@ function updateLayerModeControls(): void {
     targetThicknessInput.disabled = !thicknessMode;
     layerCountField.classList.toggle('inactive-field', thicknessMode);
     targetThicknessField.classList.toggle('inactive-field', !thicknessMode);
+}
+
+function changeLayerMode(): void {
+    updateLayerModeControls();
+    syncActiveLayerDimension(true);
+}
+
+function selectLayerMode(layerMode: TLayerMode): void {
+    const input = byId<HTMLInputElement>(layerMode === 'thickness' ? 'layer-mode-thickness' : 'layer-mode-count');
+    if (input.checked) {
+        return;
+    }
+
+    input.checked = true;
+    changeLayerMode();
+}
+
+function preventNonIntegerLayerCountInput(event: InputEvent): void {
+    if (event.data && /[^\d]/.test(event.data)) {
+        event.preventDefault();
+    }
+}
+
+function changeLayerCount(snapLayerCount: boolean): void {
+    normalizeLayerCountInput();
+    syncTargetThicknessFromLayerCount(snapLayerCount);
+}
+
+function normalizeLayerCountInput(): void {
+    const input = byId<HTMLInputElement>('layer-count');
+    const normalizedValue = input.value.replace(/\D/g, '');
+    if (input.value !== normalizedValue) {
+        input.value = normalizedValue;
+    }
+}
+
+function syncActiveLayerDimension(snapTargetThickness: boolean): void {
+    syncTargetThicknessConstraints();
+    if (getLayerMode() === 'thickness') {
+        syncLayerCountFromTargetThickness(snapTargetThickness);
+        return;
+    }
+
+    syncTargetThicknessFromLayerCount(snapTargetThickness);
+}
+
+function syncTargetThicknessFromLayerCount(snapLayerCount: boolean): void {
+    const layerCount = readNumber('layer-count');
+    const towThickness = readNumber('tow-thickness');
+    if (!Number.isFinite(layerCount) || !Number.isFinite(towThickness) || layerCount < 1 || towThickness <= 0) {
+        return;
+    }
+
+    const roundedLayerCount = Math.round(layerCount);
+    if (snapLayerCount) {
+        byId<HTMLInputElement>('layer-count').value = roundedLayerCount.toString();
+    }
+    byId<HTMLInputElement>('target-thickness').value = formatMM(roundedLayerCount * towThickness);
+}
+
+function syncLayerCountFromTargetThickness(snapTargetThickness: boolean): void {
+    const targetThickness = readNumber('target-thickness');
+    const towThickness = readNumber('tow-thickness');
+    if (!Number.isFinite(targetThickness) || !Number.isFinite(towThickness) || targetThickness <= 0 || towThickness <= 0) {
+        return;
+    }
+
+    const layerCount = Math.max(1, Math.round(targetThickness / towThickness));
+    byId<HTMLInputElement>('layer-count').value = layerCount.toString();
+    if (snapTargetThickness) {
+        byId<HTMLInputElement>('target-thickness').value = formatMM(layerCount * towThickness);
+    }
+}
+
+function syncTargetThicknessConstraints(): void {
+    const towThickness = readNumber('tow-thickness');
+    const targetThicknessInput = byId<HTMLInputElement>('target-thickness');
+    if (!Number.isFinite(towThickness) || towThickness <= 0) {
+        targetThicknessInput.min = '0.01';
+        targetThicknessInput.step = '0.01';
+        return;
+    }
+
+    targetThicknessInput.min = formatMM(towThickness * 2);
+    targetThicknessInput.step = formatMM(towThickness);
 }
 
 function bindCanvasEvents(): void {
