@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/cyclone
+User=sammy
+WorkingDirectory=/home/sammy/cyclone
 Environment=NODE_ENV=production
 Environment=CYCLONE_HOST=0.0.0.0
 Environment=CYCLONE_PORT=8080
