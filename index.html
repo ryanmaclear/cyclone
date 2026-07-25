@@ -2,6 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cyclone</title>
     <meta
       http-equiv="Content-Security-Policy"
@@ -21,7 +22,7 @@
 
       body {
         margin: 0;
-        min-width: 980px;
+        min-width: 0;
       }
 
       header {
@@ -331,6 +332,58 @@
         }
       }
 
+      @media (max-width: 800px) {
+        header {
+          gap: 12px;
+          height: auto;
+          justify-content: space-between;
+          padding: 12px 14px;
+        }
+
+        main {
+          gap: 12px;
+          grid-template-columns: minmax(0, 1fr);
+          padding: 12px;
+        }
+
+        .field-grid,
+        .layer-mode-fields,
+        .machine-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .mode-selector,
+        .button-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        button,
+        input,
+        select {
+          min-height: 42px;
+        }
+
+        .plot-frame {
+          height: min(62vh, 430px);
+          min-height: 280px;
+        }
+
+        .preview-toolbar label {
+          width: 100%;
+        }
+
+        .preview-toolbar select {
+          width: 100%;
+        }
+
+        table {
+          display: block;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+      }
+
       .preview-toolbar {
         align-items: center;
         display: flex;
@@ -380,6 +433,7 @@
         cursor: grab;
         display: block;
         height: 100%;
+        touch-action: none;
         width: 100%;
       }
 
@@ -431,6 +485,26 @@
       .arm-row input {
         height: 16px;
         width: 16px;
+      }
+
+      .run-source {
+        border-top: 1px solid #e3e7df;
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+        padding-top: 14px;
+      }
+
+      .run-source-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 1fr;
+      }
+
+      .uploaded-gcode-status {
+        color: #58636b;
+        font-size: 13px;
+        margin: 0;
       }
 
       pre {
@@ -632,6 +706,7 @@
 
             <div class="button-row">
               <button id="generate">Generate Preview</button>
+              <button id="clear-recipe" class="secondary" disabled>Clear Recipe</button>
               <button id="save" class="secondary" disabled>Save Artifacts</button>
             </div>
             <div id="recipe-message" class="message"></div>
@@ -648,7 +723,7 @@
               </label>
               <label>
                 Baud
-                <input id="baud-rate" type="number" min="1" step="1" value="115200" />
+                <input id="baud-rate" type="number" min="1" step="1" value="250000" />
               </label>
             </div>
             <div class="button-row">
@@ -656,9 +731,25 @@
               <button id="connect">Connect</button>
               <button id="disconnect" class="secondary" disabled>Disconnect</button>
             </div>
+            <div class="run-source">
+              <div class="run-source-grid">
+                <label>
+                  G-code source
+                  <select id="run-source">
+                    <option value="generated">Generated preview</option>
+                    <option value="uploaded">Uploaded file</option>
+                  </select>
+                </label>
+                <label>
+                  Upload file
+                  <input id="uploaded-gcode-file" type="file" />
+                </label>
+              </div>
+              <p id="uploaded-gcode-status" class="uploaded-gcode-status">No uploaded file selected</p>
+            </div>
             <div class="arm-row">
               <input id="arm-run" type="checkbox" disabled />
-              <label for="arm-run">Arm generated G-code</label>
+              <label for="arm-run">Arm selected G-code</label>
             </div>
             <div class="button-row">
               <button id="run" class="warning" disabled>Run</button>

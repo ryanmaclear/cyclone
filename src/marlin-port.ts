@@ -23,7 +23,7 @@ export class MarlinPort {
     private totalCommands = 0;
     private sentCommands = 0;
 
-    constructor( private portPath: string, private verbose = false, private baudRate = 115200, private events: IMarlinPortEvents = {} ) {
+    constructor( private portPath: string, private verbose = false, private baudRate = 250000, private events: IMarlinPortEvents = {} ) {
 
     }
 

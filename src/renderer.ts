@@ -10,6 +10,7 @@ type TLayerMode = import('./recipe').TLayerMode;
 type TStrengthPreset = import('./recipe').TStrengthPreset;
 
 type TColorMode = 'layer' | 'circuit' | 'pass';
+type TRunSource = 'generated' | 'uploaded';
 
 interface IWrappedPreviewSegment {
     source: IPreviewSegment;
@@ -67,6 +68,9 @@ let currentStatus: IMarlinStatus = {
     sentCommands: 0,
     portPath: null
 };
+let selectedRunSource: TRunSource = 'generated';
+let uploadedGCodeCommands: string[] = [];
+let uploadedGCodeFilename = '';
 let gcodeFilename = DEFAULT_GCODE_FILENAME;
 let wasGCodePaneStacked = false;
 let gcodeToastTimer: number | null = null;
@@ -92,6 +96,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function bindEvents(): void {
     byId<HTMLButtonElement>('generate').addEventListener('click', generatePreview);
+    byId<HTMLButtonElement>('clear-recipe').addEventListener('click', clearGeneratedRecipe);
     byId<HTMLButtonElement>('save').addEventListener('click', saveArtifacts);
     byId<HTMLButtonElement>('refresh-ports').addEventListener('click', refreshPorts);
     byId<HTMLButtonElement>('connect').addEventListener('click', connectSerial);
@@ -101,6 +106,8 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('resume').addEventListener('click', resumeMachine);
     byId<HTMLButtonElement>('clear-queue').addEventListener('click', clearQueue);
     byId<HTMLInputElement>('arm-run').addEventListener('change', updateRunControls);
+    byId<HTMLSelectElement>('run-source').addEventListener('change', changeRunSource);
+    byId<HTMLInputElement>('uploaded-gcode-file').addEventListener('change', loadUploadedGCode);
     byId<HTMLInputElement>('layer-mode-count').addEventListener('change', updateLayerModeControls);
     byId<HTMLInputElement>('layer-mode-thickness').addEventListener('change', updateLayerModeControls);
     byId<HTMLButtonElement>('fit-preview').addEventListener('click', fitPreview);
@@ -146,27 +153,39 @@ async function generatePreview(): Promise<void> {
         resetLayerVisibility(preview);
         renderPreview(preview);
         byId<HTMLButtonElement>('save').disabled = false;
-        byId<HTMLInputElement>('arm-run').disabled = false;
+        selectedRunSource = 'generated';
+        byId<HTMLSelectElement>('run-source').value = selectedRunSource;
         updateRunControls();
         setRecipeMessage('Preview generated.');
     } catch (error) {
-        currentPreview = null;
-        prepareWrappedPreviewSegments(null);
-        invalidatePreviewLayerCache();
-        visibleLayerIndexes.clear();
-        expandedLayerIndexes.clear();
-        hoveredLayerIndex = null;
-        selectedLayerIndex = null;
-        selectedCircuit = null;
-        renderPreview(null);
-        byId<HTMLButtonElement>('save').disabled = true;
-        byId<HTMLInputElement>('arm-run').disabled = true;
+        resetGeneratedRecipe();
         updateRunControls();
         setRecipeMessage(getErrorMessage(error));
         console.error(error);
     } finally {
         byId<HTMLButtonElement>('generate').disabled = false;
     }
+}
+
+function clearGeneratedRecipe(): void {
+    byId<HTMLInputElement>('arm-run').checked = false;
+    resetGeneratedRecipe();
+    updateRunControls();
+    setArtifactPaths(null);
+    setRecipeMessage('Recipe cleared.');
+}
+
+function resetGeneratedRecipe(): void {
+    currentPreview = null;
+    prepareWrappedPreviewSegments(null);
+    invalidatePreviewLayerCache();
+    visibleLayerIndexes.clear();
+    expandedLayerIndexes.clear();
+    hoveredLayerIndex = null;
+    selectedLayerIndex = null;
+    selectedCircuit = null;
+    renderPreview(null);
+    byId<HTMLButtonElement>('save').disabled = true;
 }
 
 async function saveArtifacts(): Promise<void> {
@@ -243,17 +262,59 @@ async function disconnectSerial(): Promise<void> {
 }
 
 async function runGCode(): Promise<void> {
-    if (!currentPreview || !byId<HTMLInputElement>('arm-run').checked) {
+    if (!byId<HTMLInputElement>('arm-run').checked) {
+        return;
+    }
+
+    const commands = getSelectedRunCommands();
+    if (!commands) {
         return;
     }
 
     try {
-        currentStatus = await cyclone.runGCode(currentPreview.plan.gcode);
+        currentStatus = await cyclone.runGCode(commands);
         byId<HTMLInputElement>('arm-run').checked = false;
         renderMachineStatus();
         updateRunControls();
-        setMachineMessage('Run queued.');
+        setMachineMessage(`${selectedRunSource === 'uploaded' ? 'Uploaded' : 'Generated'} G-code queued.`);
     } catch (error) {
+        setMachineMessage(getErrorMessage(error));
+    }
+}
+
+function changeRunSource(): void {
+    selectedRunSource = byId<HTMLSelectElement>('run-source').value as TRunSource;
+    byId<HTMLInputElement>('arm-run').checked = false;
+    updateRunControls();
+}
+
+async function loadUploadedGCode(): Promise<void> {
+    const input = byId<HTMLInputElement>('uploaded-gcode-file');
+    const file = input.files && input.files.length > 0 ? input.files[0] : null;
+    byId<HTMLInputElement>('arm-run').checked = false;
+
+    if (!file) {
+        uploadedGCodeCommands = [];
+        uploadedGCodeFilename = '';
+        renderUploadedGCodeStatus();
+        updateRunControls();
+        return;
+    }
+
+    try {
+        const text = await file.text();
+        uploadedGCodeCommands = text.split(/\r?\n/);
+        uploadedGCodeFilename = file.name;
+        selectedRunSource = 'uploaded';
+        byId<HTMLSelectElement>('run-source').value = selectedRunSource;
+        renderUploadedGCodeStatus();
+        updateRunControls();
+        setMachineMessage('Uploaded G-code file selected.');
+    } catch (error) {
+        uploadedGCodeCommands = [];
+        uploadedGCodeFilename = '';
+        renderUploadedGCodeStatus();
+        updateRunControls();
         setMachineMessage(getErrorMessage(error));
     }
 }
@@ -372,20 +433,25 @@ function updateLayerModeControls(): void {
 
 function bindCanvasEvents(): void {
     const canvas = byId<HTMLCanvasElement>('preview-canvas');
-    canvas.addEventListener('mousedown', (event) => {
+    canvas.addEventListener('pointerdown', (event) => {
         previewView.dragging = true;
         previewView.lastMouseX = event.clientX;
         previewView.lastMouseY = event.clientY;
+        canvas.setPointerCapture(event.pointerId);
         canvas.classList.add('dragging');
     });
-    canvas.addEventListener('mouseup', () => endCanvasDrag());
-    canvas.addEventListener('mouseleave', () => {
-        endCanvasDrag();
-        hidePreviewTooltip();
-    });
-    canvas.addEventListener('mousemove', (event) => {
+    canvas.addEventListener('pointerup', (event) => endCanvasDrag(event));
+    canvas.addEventListener('pointercancel', (event) => endCanvasDrag(event));
+    canvas.addEventListener('pointerleave', () => {
         if (!previewView.dragging) {
-            updatePreviewTooltip(event);
+            hidePreviewTooltip();
+        }
+    });
+    canvas.addEventListener('pointermove', (event) => {
+        if (!previewView.dragging) {
+            if (event.pointerType === 'mouse') {
+                updatePreviewTooltip(event);
+            }
             return;
         }
         hidePreviewTooltip();
@@ -406,9 +472,13 @@ function bindCanvasEvents(): void {
     }, {passive: false});
 }
 
-function endCanvasDrag(): void {
+function endCanvasDrag(event?: PointerEvent): void {
     previewView.dragging = false;
-    byId<HTMLCanvasElement>('preview-canvas').classList.remove('dragging');
+    const canvas = byId<HTMLCanvasElement>('preview-canvas');
+    if (event && canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+    }
+    canvas.classList.remove('dragging');
 }
 
 function fitPreview(): void {
@@ -1170,19 +1240,46 @@ function renderMachineStatus(): void {
     status.textContent = `${currentStatus.portPath || 'Connected'} ${progress}`;
 }
 
+function renderUploadedGCodeStatus(): void {
+    const status = byId<HTMLParagraphElement>('uploaded-gcode-status');
+    if (!uploadedGCodeFilename) {
+        status.textContent = 'No uploaded file selected';
+        return;
+    }
+
+    const commandCount = countMachineCommands(uploadedGCodeCommands);
+    status.textContent = `${uploadedGCodeFilename} | ${commandCount} commands`;
+}
+
 function updateRunControls(): void {
     const connected = currentStatus.connected;
-    const hasPreview = currentPreview !== null;
     const armed = byId<HTMLInputElement>('arm-run').checked;
+    const hasRunnableGCode = getSelectedRunCommands() !== null;
     const runInProgress = currentStatus.totalCommands > 0 && currentStatus.sentCommands < currentStatus.totalCommands;
     const canStopRun = runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming || currentStatus.stopping;
 
     byId<HTMLButtonElement>('connect').disabled = connected;
     byId<HTMLButtonElement>('disconnect').disabled = !connected;
-    byId<HTMLButtonElement>('run').disabled = !connected || !hasPreview || !armed || canStopRun;
+    byId<HTMLButtonElement>('clear-recipe').disabled = currentPreview === null || canStopRun;
+    byId<HTMLSelectElement>('run-source').disabled = canStopRun;
+    byId<HTMLInputElement>('uploaded-gcode-file').disabled = canStopRun;
+    byId<HTMLInputElement>('arm-run').disabled = !hasRunnableGCode || canStopRun;
+    byId<HTMLButtonElement>('run').disabled = !connected || !hasRunnableGCode || !armed || canStopRun;
     byId<HTMLButtonElement>('pause').disabled = !connected || !runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming || currentStatus.stopping;
     byId<HTMLButtonElement>('resume').disabled = !connected || !currentStatus.paused || currentStatus.resuming || currentStatus.stopping;
     byId<HTMLButtonElement>('clear-queue').disabled = !connected || !canStopRun;
+}
+
+function getSelectedRunCommands(): string[] | null {
+    if (selectedRunSource === 'uploaded') {
+        return countMachineCommands(uploadedGCodeCommands) > 0 ? uploadedGCodeCommands : null;
+    }
+
+    return currentPreview ? currentPreview.plan.gcode : null;
+}
+
+function countMachineCommands(commands: string[]): number {
+    return commands.filter((command) => command.trim().length > 0 && command.trim().slice(0, 1) !== ';').length;
 }
 
 function addMetric(container: HTMLElement, label: string, value: string): void {
