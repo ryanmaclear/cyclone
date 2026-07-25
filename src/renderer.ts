@@ -119,6 +119,7 @@ function bindEvents(): void {
     byId<HTMLInputElement>('target-thickness').addEventListener('change', () => syncLayerCountFromTargetThickness(true));
     byId<HTMLInputElement>('tow-thickness').addEventListener('input', () => syncActiveLayerDimension(false));
     byId<HTMLInputElement>('tow-thickness').addEventListener('change', () => syncActiveLayerDimension(true));
+    byId<HTMLInputElement>('fixed-delivery-head').addEventListener('change', updateDeliveryHeadControls);
     byId<HTMLButtonElement>('fit-preview').addEventListener('click', fitPreview);
     byId<HTMLButtonElement>('actual-size-preview').addEventListener('click', actualSizePreview);
     byId<HTMLButtonElement>('zoom-in-preview').addEventListener('click', () => zoomPreview(1.25));
@@ -141,6 +142,7 @@ function bindEvents(): void {
     });
     bindCanvasEvents();
     updateLayerModeControls();
+    updateDeliveryHeadControls();
     syncActiveLayerDimension(true);
     updateGCodePanel(null);
     syncResponsiveGCodePanel();
@@ -440,6 +442,14 @@ function updateLayerModeControls(): void {
     targetThicknessInput.disabled = !thicknessMode;
     layerCountField.classList.toggle('inactive-field', thicknessMode);
     targetThicknessField.classList.toggle('inactive-field', !thicknessMode);
+}
+
+function updateDeliveryHeadControls(): void {
+    const fixedDeliveryHead = byId<HTMLInputElement>('fixed-delivery-head').checked;
+    byId<HTMLInputElement>('lead-in').disabled = fixedDeliveryHead;
+    byId<HTMLInputElement>('lead-out').disabled = fixedDeliveryHead;
+    byId<HTMLLabelElement>('lead-in-field').classList.toggle('inactive-field', fixedDeliveryHead);
+    byId<HTMLLabelElement>('lead-out-field').classList.toggle('inactive-field', fixedDeliveryHead);
 }
 
 function changeLayerMode(): void {
