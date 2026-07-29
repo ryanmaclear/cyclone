@@ -83,34 +83,173 @@
         grid-column: 1 / -1;
       }
 
-      .layer-mode-panel {
+      [hidden] {
+        display: none !important;
+      }
+
+      .standard-recipe-fields {
+        display: grid;
+        gap: 12px;
+        grid-column: 1 / -1;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .custom-recipe-card {
+        background: #f6f8f4;
         border: 1px solid #d8ddd2;
         border-radius: 4px;
         display: grid;
-        gap: 10px;
+        gap: 8px;
         grid-column: 1 / -1;
         padding: 10px;
       }
 
-      .mode-selector {
-        display: flex;
+      .custom-recipe-card p {
+        color: #58636b;
+        font-size: 12px;
+        margin: 0;
+      }
+
+      dialog {
+        border: 0;
+        border-radius: 8px;
+        box-shadow: 0 18px 60px rgba(20, 28, 32, 0.28);
+        box-sizing: border-box;
+        color: #20242a;
+        max-height: calc(100vh - 48px);
+        max-width: calc(100vw - 48px);
+        padding: 0;
+        width: 760px;
+      }
+
+      dialog::backdrop {
+        background: rgba(24, 32, 35, 0.58);
+      }
+
+      .custom-dialog {
+        display: grid;
+        max-height: calc(100vh - 48px);
+        min-height: 300px;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+      }
+
+      .custom-dialog-header {
+        border-bottom: 1px solid #e3e7df;
+        padding: 16px 18px 12px;
+      }
+
+      .custom-dialog-header h2 {
+        border: 0;
+        font-size: 17px;
+        margin: 0;
+        padding: 0;
+      }
+
+      .custom-dialog-header p {
+        color: #66716a;
+        font-size: 12px;
+        margin: 5px 0 0;
+      }
+
+      .custom-dialog-body {
+        overflow-y: auto;
+        padding: 16px 18px;
+      }
+
+      .custom-layer-list {
+        display: grid;
         gap: 8px;
       }
 
-      .mode-option {
-        align-items: center;
-        background: #f1f3ee;
+      .custom-layer-row {
+        align-items: end;
+        background: #f6f8f4;
         border: 1px solid #d8ddd2;
-        border-radius: 4px;
-        display: flex;
-        flex-direction: row;
-        gap: 8px;
-        padding: 8px 10px;
+        border-radius: 5px;
+        display: grid;
+        gap: 10px;
+        grid-template-areas: 'number type angle actions';
+        grid-template-columns: 32px minmax(190px, 1fr) 140px auto;
+        padding: 10px;
       }
 
-      .mode-option input {
-        height: 16px;
-        width: 16px;
+      .custom-layer-number {
+        align-self: center;
+        color: #58636b;
+        font-size: 13px;
+        font-weight: 700;
+        grid-area: number;
+        text-align: center;
+      }
+
+      .custom-layer-type {
+        grid-area: type;
+      }
+
+      .custom-layer-angle {
+        grid-area: angle;
+      }
+
+      .custom-layer-actions {
+        display: flex;
+        gap: 5px;
+        grid-area: actions;
+      }
+
+      .custom-layer-actions button {
+        min-width: 34px;
+        padding: 7px 9px;
+      }
+
+      button.danger {
+        background: #8c433b;
+      }
+
+      .custom-layer-empty {
+        border: 1px dashed #b8c1b2;
+        border-radius: 5px;
+        color: #66716a;
+        font-size: 13px;
+        padding: 18px;
+        text-align: center;
+      }
+
+      .custom-dialog-tools {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .terminal-hoop-control {
+        background: #edf4f2;
+        border: 1px solid #c5d8d2;
+        border-radius: 5px;
+        margin-top: 16px;
+        padding: 10px;
+      }
+
+      .terminal-layer-row {
+        color: #3d6f62;
+        font-size: 12px;
+        font-weight: 700;
+        margin: 8px 0 0 26px;
+      }
+
+      .custom-dialog-message {
+        color: #a33a32;
+        font-size: 12px;
+        min-height: 16px;
+        margin-top: 10px;
+      }
+
+      .custom-dialog-footer {
+        border-top: 1px solid #e3e7df;
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        padding: 12px 18px;
       }
 
       .checkbox-option {
@@ -123,12 +262,6 @@
       .checkbox-option input {
         height: 16px;
         width: 16px;
-      }
-
-      .layer-mode-fields {
-        display: grid;
-        gap: 12px;
-        grid-template-columns: 1fr 1fr;
       }
 
       .inactive-field {
@@ -360,12 +493,11 @@
         }
 
         .field-grid,
-        .layer-mode-fields,
+        .standard-recipe-fields,
         .machine-grid {
           grid-template-columns: minmax(0, 1fr);
         }
 
-        .mode-selector,
         .button-row {
           display: grid;
           grid-template-columns: minmax(0, 1fr);
@@ -394,6 +526,33 @@
           display: block;
           overflow-x: auto;
           white-space: nowrap;
+        }
+
+        dialog {
+          border-radius: 0;
+          height: 100vh;
+          margin: 0;
+          max-height: 100vh;
+          max-width: 100vw;
+          width: 100vw;
+        }
+
+        .custom-dialog {
+          height: 100vh;
+          max-height: 100vh;
+        }
+
+        .custom-layer-row {
+          align-items: end;
+          grid-template-areas:
+            'number type actions'
+            '. angle actions';
+          grid-template-columns: 28px minmax(0, 1fr) auto;
+        }
+
+        .custom-layer-actions {
+          align-self: stretch;
+          flex-direction: column;
         }
       }
 
@@ -633,7 +792,7 @@
       <div>
         <section>
           <h2>Tube Recipe</h2>
-          <div class="panel-body">
+          <div class="panel-body" id="tube-recipe-form">
             <div class="field-grid">
               <label>
                 Diameter mm
@@ -643,40 +802,41 @@
                 Wind length mm
                 <input id="wind-length" type="number" min="1" step="0.01" value="940" />
               </label>
-              <label>
-                Winding angle deg
-                <input id="wind-angle" type="number" min="10" max="80" step="0.1" value="55" />
-              </label>
-              <div class="layer-mode-panel">
-                <div class="mode-selector" aria-label="Layer input mode">
-                  <label class="mode-option">
-                    <input id="layer-mode-count" name="layer-mode" type="radio" value="count" checked />
-                    Layer count
-                  </label>
-                  <label class="mode-option">
-                    <input id="layer-mode-thickness" name="layer-mode" type="radio" value="thickness" />
-                    Total thickness
-                  </label>
-                </div>
-                <div class="layer-mode-fields">
-                  <label id="layer-count-field">
-                    Layers
-                    <input id="layer-count" type="number" min="1" step="1" inputmode="numeric" pattern="[0-9]*" value="4" />
-                  </label>
-                  <label id="target-thickness-field" class="inactive-field">
-                    Total thickness mm
-                    <input id="target-thickness" type="number" min="2" step="1" value="4" disabled />
-                  </label>
-                </div>
-              </div>
-              <label id="layer-distribution-field" class="full-width-field">
-                Layer distribution
-                <select id="strength">
-                  <option value="light">Helical only (0% hoop)</option>
-                  <option value="medium" selected>Mostly helical (~25% hoop)</option>
-                  <option value="heavy">Mixed helical/hoop (~40% hoop)</option>
+              <label class="full-width-field">
+                Recipe method
+                <select id="recipe-method">
+                  <option value="count">Layer count</option>
+                  <option value="thickness">Total thickness</option>
+                  <option value="custom">Custom layers</option>
                 </select>
               </label>
+              <div class="standard-recipe-fields" id="standard-recipe-fields">
+                <label id="wind-angle-field">
+                  Winding angle deg
+                  <input id="wind-angle" type="number" min="10" max="80" step="0.1" value="55" />
+                </label>
+                <label id="layer-count-field">
+                  Layers
+                  <input id="layer-count" type="number" min="1" step="1" inputmode="numeric" pattern="[0-9]*" value="4" />
+                </label>
+                <label id="target-thickness-field" hidden>
+                  Total thickness mm
+                  <input id="target-thickness" type="number" min="2" step="1" value="4" />
+                </label>
+                <label id="layer-distribution-field" class="full-width-field">
+                  Layer distribution
+                  <select id="strength">
+                    <option value="light">Helical only (0% hoop)</option>
+                    <option value="medium" selected>Mostly helical (~25% hoop)</option>
+                    <option value="heavy">Mixed helical/hoop (~40% hoop)</option>
+                  </select>
+                </label>
+              </div>
+              <div class="custom-recipe-card" id="custom-recipe-card" hidden>
+                <strong id="custom-layer-summary">No custom layers</strong>
+                <p id="custom-terminal-summary">Final single-pass hoop: No</p>
+                <button id="edit-custom-layers" class="secondary" type="button">Edit custom layers…</button>
+              </div>
             </div>
 
             <details>
@@ -835,6 +995,34 @@
         </div>
       </section>
     </main>
+
+    <dialog id="custom-layer-dialog" aria-labelledby="custom-layer-dialog-title">
+      <div class="custom-dialog">
+        <div class="custom-dialog-header">
+          <h2 id="custom-layer-dialog-title">Custom winding sequence</h2>
+          <p>Layers run from top to bottom. Helical angles are measured relative to the mandrel axis.</p>
+        </div>
+        <div class="custom-dialog-body">
+          <div id="custom-layer-list" class="custom-layer-list"></div>
+          <div class="custom-dialog-tools">
+            <button id="add-custom-layer" type="button">Add layer</button>
+            <button id="clear-custom-layers" class="danger" type="button">Clear all</button>
+          </div>
+          <div class="terminal-hoop-control">
+            <label class="checkbox-option">
+              <input id="custom-terminal-hoop" type="checkbox" />
+              Add final single-pass hoop
+            </label>
+            <p id="terminal-layer-row" class="terminal-layer-row" hidden>Final: Hoop — single pass</p>
+          </div>
+          <div id="custom-layer-dialog-message" class="custom-dialog-message" aria-live="polite"></div>
+        </div>
+        <footer class="custom-dialog-footer">
+          <button id="cancel-custom-layers" class="secondary" type="button">Cancel</button>
+          <button id="apply-custom-layers" type="button">Apply</button>
+        </footer>
+      </div>
+    </dialog>
 
     <script src="./dist/src/renderer.js"></script>
   </body>

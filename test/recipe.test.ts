@@ -7,6 +7,7 @@ import {
     choosePatternNumber,
     generateTubeRecipe,
     ITubeRecipeInput,
+    TCustomRecipeLayer,
     validateTubeRecipeInput
 } from '../src/recipe';
 
@@ -109,6 +110,91 @@ const heavyThicknessRecipe = generateTubeRecipe({
 assert.strictEqual(heavyThicknessRecipe.summary.helicalLayerCount, 3);
 assert.strictEqual(heavyThicknessRecipe.summary.hoopLayerCount, 2);
 
+const customRecipe = generateTubeRecipe({
+    ...baseInput,
+    layerMode: 'custom',
+    customLayers: [
+        {windType: 'helical', windAngle: 45},
+        {windType: 'hoop'},
+        {windType: 'helical', windAngle: 55}
+    ],
+    includeTerminalHoop: true
+});
+assert.strictEqual(customRecipe.summary.layerMode, 'custom');
+assert.strictEqual(customRecipe.summary.requestedLayerCount, 4);
+assert.strictEqual(customRecipe.summary.helicalLayerCount, 2);
+assert.strictEqual(customRecipe.summary.hoopLayerCount, 2);
+assert.strictEqual(customRecipe.summary.achievedThickness, 3.5);
+assert.strictEqual(customRecipe.summary.numCircuits, undefined);
+assert.strictEqual(customRecipe.summary.patternNumber, undefined);
+assert.deepStrictEqual(customRecipe.windParameters.layers.map((layer) => layer.windType), [
+    ELayerType.HELICAL,
+    ELayerType.HOOP,
+    ELayerType.HELICAL,
+    ELayerType.HOOP
+]);
+const customFirstHelical = customRecipe.windParameters.layers[0];
+const customSecondHelical = customRecipe.windParameters.layers[2];
+const customTerminalHoop = customRecipe.windParameters.layers[3];
+assert.strictEqual(customFirstHelical.windType, ELayerType.HELICAL);
+assert.strictEqual(customSecondHelical.windType, ELayerType.HELICAL);
+assert.strictEqual(customTerminalHoop.windType, ELayerType.HOOP);
+if (customFirstHelical.windType === ELayerType.HELICAL && customSecondHelical.windType === ELayerType.HELICAL) {
+    assert.strictEqual(customFirstHelical.windAngle, 45);
+    assert.strictEqual(customFirstHelical.patternNumber, choosePatternNumber(calculateHelicalCircuitCount(70, 7, 45)));
+    assert.strictEqual(customFirstHelical.skipInitialNearLock, false);
+    assert.strictEqual(customSecondHelical.windAngle, 55);
+    assert.strictEqual(customSecondHelical.patternNumber, choosePatternNumber(calculateHelicalCircuitCount(70, 7, 55)));
+    assert.strictEqual(customSecondHelical.skipInitialNearLock, true);
+}
+if (customTerminalHoop.windType === ELayerType.HOOP) {
+    assert.strictEqual(customTerminalHoop.terminal, true);
+}
+
+const terminalOnlyRecipe = generateTubeRecipe({
+    ...baseInput,
+    layerMode: 'custom',
+    customLayers: [],
+    includeTerminalHoop: true
+});
+assert.strictEqual(terminalOnlyRecipe.summary.requestedLayerCount, 1);
+assert.strictEqual(terminalOnlyRecipe.summary.achievedThickness, 0.5);
+
+const emptyCustomRecipe = validateTubeRecipeInput({
+    ...baseInput,
+    layerMode: 'custom',
+    customLayers: [],
+    includeTerminalHoop: false
+});
+assert.strictEqual(emptyCustomRecipe.valid, false);
+assert.ok(emptyCustomRecipe.errors.some((error) => error.includes('at least one layer')));
+
+const invalidCustomAngle = validateTubeRecipeInput({
+    ...baseInput,
+    layerMode: 'custom',
+    customLayers: [{windType: 'helical', windAngle: 81}]
+});
+assert.strictEqual(invalidCustomAngle.valid, false);
+assert.ok(invalidCustomAngle.errors.some((error) => error.includes('Custom layer 1 angle')));
+
+const invalidCustomType = validateTubeRecipeInput({
+    ...baseInput,
+    layerMode: 'custom',
+    customLayers: [{windType: 'skip'} as unknown as TCustomRecipeLayer]
+});
+assert.strictEqual(invalidCustomType.valid, false);
+assert.ok(invalidCustomType.errors.some((error) => error.includes('must be helical or hoop')));
+
+const malformedCustomRecipe = validateTubeRecipeInput({
+    ...baseInput,
+    layerMode: 'custom',
+    customLayers: undefined,
+    includeTerminalHoop: 'yes' as unknown as boolean
+});
+assert.strictEqual(malformedCustomRecipe.valid, false);
+assert.ok(malformedCustomRecipe.errors.some((error) => error.includes('must be an array')));
+assert.ok(malformedCustomRecipe.errors.some((error) => error.includes('must be true or false')));
+
 const oneLayerThicknessRecipe = validateTubeRecipeInput({
     ...baseInput,
     layerMode: 'thickness',
@@ -162,6 +248,15 @@ assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'helical-pass' && segment.passDirection === 'back'));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'lock'));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.layerIndex === 3 && segment.groupKind === 'hoop-pass'));
+
+const customPlan = planWindDetailed(customRecipe.windParameters, false, false);
+const terminalSegments = customPlan.previewSegments.filter((segment) => segment.layerIndex === 3 && segment.groupKind === 'hoop-pass');
+assert.ok(terminalSegments.some((segment) => segment.passDirection === 'there'));
+assert.ok(!terminalSegments.some((segment) => segment.passDirection === 'back'));
+
+const terminalOnlyPlan = planWindDetailed(terminalOnlyRecipe.windParameters, false, false);
+assert.ok(terminalOnlyPlan.previewSegments.some((segment) => segment.groupKind === 'hoop-pass' && segment.passDirection === 'there'));
+assert.ok(!terminalOnlyPlan.previewSegments.some((segment) => segment.groupKind === 'hoop-pass' && segment.passDirection === 'back'));
 
 const fixedDeliveryHeadPlan = planWindDetailed(fixedDeliveryHeadRecipe.windParameters, false, false);
 const fixedDeliveryHeadZCommands = fixedDeliveryHeadPlan.gcode.filter((command) => /^G0\b.*\bZ/.test(command));

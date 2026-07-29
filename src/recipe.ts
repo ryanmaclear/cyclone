@@ -2,7 +2,10 @@ import { degToRad } from './helpers';
 import { ELayerType, IWindParameters, TLayerParameters } from './planner/types';
 
 export type TStrengthPreset = 'light' | 'medium' | 'heavy';
-export type TLayerMode = 'count' | 'thickness';
+export type TLayerMode = 'count' | 'thickness' | 'custom';
+export type TCustomRecipeLayer =
+    | {windType: 'helical'; windAngle: number}
+    | {windType: 'hoop'};
 
 export interface ITubeRecipeInput {
     diameter: number;
@@ -12,6 +15,8 @@ export interface ITubeRecipeInput {
     layerMode: TLayerMode;
     layerCount?: number;
     targetThickness?: number;
+    customLayers?: TCustomRecipeLayer[];
+    includeTerminalHoop?: boolean;
     towWidth: number;
     towThickness: number;
     defaultFeedRate: number;
@@ -34,8 +39,8 @@ export interface IRecipeSummary {
     requestedLayerCount: number;
     helicalLayerCount: number;
     hoopLayerCount: number;
-    numCircuits: number;
-    patternNumber: number;
+    numCircuits?: number;
+    patternNumber?: number;
     targetThickness?: number;
     achievedThickness: number;
 }
@@ -73,12 +78,12 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
     requirePositive(input.defaultFeedRate, 'Feed rate', errors);
     requirePositive(input.lockDegrees, 'Lock degrees', errors);
 
-    if (!Number.isFinite(input.windAngle) || input.windAngle < MIN_WIND_ANGLE_DEGREES || input.windAngle > MAX_WIND_ANGLE_DEGREES) {
-        errors.push(`Winding angle must be between ${MIN_WIND_ANGLE_DEGREES} and ${MAX_WIND_ANGLE_DEGREES} degrees.`);
+    if (input.layerMode !== 'count' && input.layerMode !== 'thickness' && input.layerMode !== 'custom') {
+        errors.push('Recipe method must be layer count, total thickness, or custom layers.');
     }
 
-    if (input.layerMode !== 'count' && input.layerMode !== 'thickness') {
-        errors.push('Layer mode must be count or thickness.');
+    if (input.layerMode !== 'custom') {
+        validateWindAngle(input.windAngle, 'Winding angle', errors);
     }
 
     if (input.layerMode === 'count') {
@@ -105,6 +110,29 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
         }
     }
 
+    if (input.layerMode === 'custom') {
+        const customLayers = Array.isArray(input.customLayers) ? input.customLayers : [];
+        if (!Array.isArray(input.customLayers)) {
+            errors.push('Custom layers must be an array.');
+        }
+        if (typeof input.includeTerminalHoop !== 'undefined' && typeof input.includeTerminalHoop !== 'boolean') {
+            errors.push('Final single-pass hoop selection must be true or false.');
+        }
+        if (customLayers.length === 0 && !input.includeTerminalHoop) {
+            errors.push('Custom layers must include at least one layer or a final single-pass hoop.');
+        }
+
+        customLayers.forEach((layer, index) => {
+            if (!layer || (layer.windType !== ELayerType.HELICAL && layer.windType !== ELayerType.HOOP)) {
+                errors.push(`Custom layer ${index + 1} must be helical or hoop.`);
+                return;
+            }
+            if (layer.windType === ELayerType.HELICAL) {
+                validateWindAngle(layer.windAngle, `Custom layer ${index + 1} angle`, errors);
+            }
+        });
+    }
+
     if (!Number.isFinite(input.leadInMM) || input.leadInMM < 0) {
         errors.push('Lead-in must be zero or greater.');
     }
@@ -121,7 +149,7 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
         errors.push('Lead-out cannot be greater than lock degrees.');
     }
 
-    if (!Object.prototype.hasOwnProperty.call(PRESET_LAYER_COUNTS, input.strengthPreset)) {
+    if (input.layerMode !== 'custom' && !Object.prototype.hasOwnProperty.call(PRESET_LAYER_COUNTS, input.strengthPreset)) {
         errors.push('Layer distribution preset must be light, medium, or heavy.');
     }
 
@@ -141,34 +169,16 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
         throw new Error(validation.errors.join(' '));
     }
 
-    const layerCounts = getLayerCounts(input);
-    const requestedLayerCount = layerCounts.requestedLayerCount;
-    const helicalLayerCount = layerCounts.helicalLayerCount;
-    const hoopLayerCount = layerCounts.hoopLayerCount;
-    const numCircuits = calculateHelicalCircuitCount(input.diameter, input.towWidth, input.windAngle);
-    const patternNumber = choosePatternNumber(numCircuits);
-    const achievedThickness = requestedLayerCount * input.towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
-    const layers: TLayerParameters[] = [];
-
-    for (let index = 0; index < helicalLayerCount; index++) {
-        layers.push({
-            windType: ELayerType.HELICAL,
-            windAngle: input.windAngle,
-            patternNumber,
-            skipIndex: 1,
-            lockDegrees: input.lockDegrees,
-            leadInMM: input.leadInMM,
-            leadOutDegrees: input.leadOutDegrees,
-            skipInitialNearLock: index > 0
-        });
-    }
-
-    for (let index = 0; index < hoopLayerCount; index++) {
-        layers.push({
-            windType: ELayerType.HOOP,
-            terminal: false
-        });
-    }
+    const customMode = input.layerMode === 'custom';
+    const layers = customMode ? buildCustomLayers(input) : buildStandardLayers(input);
+    const requestedLayerCount = layers.length;
+    const helicalLayerCount = layers.filter((layer) => layer.windType === ELayerType.HELICAL).length;
+    const hoopLayerCount = layers.filter((layer) => layer.windType === ELayerType.HOOP).length;
+    const numCircuits = customMode ? undefined : calculateHelicalCircuitCount(input.diameter, input.towWidth, input.windAngle);
+    const patternNumber = typeof numCircuits === 'number' ? choosePatternNumber(numCircuits) : undefined;
+    const ordinaryLayerCount = customMode ? (input.customLayers || []).length : requestedLayerCount;
+    const coverageCount = ordinaryLayerCount * TOW_COVERAGES_PER_RECIPE_LAYER + (customMode && input.includeTerminalHoop ? 1 : 0);
+    const achievedThickness = coverageCount * input.towThickness;
 
     return {
         windParameters: {
@@ -199,11 +209,73 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
             achievedThickness
         },
         warnings: [
-            'Layer distribution is a recipe preset, not a certified load rating.',
+            ...(customMode ? [] : ['Layer distribution is a recipe preset, not a certified load rating.']),
             'Thickness assumes each there-and-back layer deposits two complete tow coverages.',
+            ...(customMode && input.includeTerminalHoop ? ['The final single-pass hoop contributes one tow coverage.'] : []),
             'Tow thickness is recorded but the current planner does not increase mandrel diameter between layers.',
             'Hoop and helical locks create trim regions at the ends of the part.'
         ]
+    };
+}
+
+function buildStandardLayers(input: ITubeRecipeInput): TLayerParameters[] {
+    const layerCounts = getLayerCounts(input);
+    const numCircuits = calculateHelicalCircuitCount(input.diameter, input.towWidth, input.windAngle);
+    const patternNumber = choosePatternNumber(numCircuits);
+    const layers: TLayerParameters[] = [];
+
+    for (let index = 0; index < layerCounts.helicalLayerCount; index++) {
+        layers.push(createHelicalLayer(input, input.windAngle, patternNumber, index > 0));
+    }
+
+    for (let index = 0; index < layerCounts.hoopLayerCount; index++) {
+        layers.push({
+            windType: ELayerType.HOOP,
+            terminal: false
+        });
+    }
+
+    return layers;
+}
+
+function buildCustomLayers(input: ITubeRecipeInput): TLayerParameters[] {
+    const layers: TLayerParameters[] = (input.customLayers || []).map((layer, index) => {
+        if (layer.windType === ELayerType.HOOP) {
+            return {
+                windType: ELayerType.HOOP,
+                terminal: false
+            };
+        }
+
+        const numCircuits = calculateHelicalCircuitCount(input.diameter, input.towWidth, layer.windAngle);
+        return createHelicalLayer(input, layer.windAngle, choosePatternNumber(numCircuits), index > 0);
+    });
+
+    if (input.includeTerminalHoop) {
+        layers.push({
+            windType: ELayerType.HOOP,
+            terminal: true
+        });
+    }
+
+    return layers;
+}
+
+function createHelicalLayer(
+    input: ITubeRecipeInput,
+    windAngle: number,
+    patternNumber: number,
+    skipInitialNearLock: boolean
+): TLayerParameters {
+    return {
+        windType: ELayerType.HELICAL,
+        windAngle,
+        patternNumber,
+        skipIndex: 1,
+        lockDegrees: input.lockDegrees,
+        leadInMM: input.leadInMM,
+        leadOutDegrees: input.leadOutDegrees,
+        skipInitialNearLock
     };
 }
 
@@ -253,5 +325,11 @@ function getLayerCounts(input: ITubeRecipeInput): {requestedLayerCount: number; 
 function requirePositive(value: number | undefined, label: string, errors: string[]): void {
     if (!Number.isFinite(value) || value <= 0) {
         errors.push(`${label} must be greater than zero.`);
+    }
+}
+
+function validateWindAngle(value: number, label: string, errors: string[]): void {
+    if (!Number.isFinite(value) || value < MIN_WIND_ANGLE_DEGREES || value > MAX_WIND_ANGLE_DEGREES) {
+        errors.push(`${label} must be between ${MIN_WIND_ANGLE_DEGREES} and ${MAX_WIND_ANGLE_DEGREES} degrees.`);
     }
 }

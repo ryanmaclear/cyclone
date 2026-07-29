@@ -8,6 +8,7 @@ type TLayerParameters = import('./planner/types').TLayerParameters;
 type ITubeRecipeInput = import('./recipe').ITubeRecipeInput;
 type TLayerMode = import('./recipe').TLayerMode;
 type TStrengthPreset = import('./recipe').TStrengthPreset;
+type TCustomRecipeLayer = import('./recipe').TCustomRecipeLayer;
 
 type TColorMode = 'layer' | 'circuit' | 'pass';
 type TRunSource = 'generated' | 'uploaded';
@@ -35,8 +36,23 @@ interface ISelectedCircuit {
     circuitIndex: number;
 }
 
+interface ICustomLayerDraft {
+    id: number;
+    windType: 'helical' | 'hoop';
+    windAngle: number;
+}
+
+interface ICycloneDialogElement extends HTMLDialogElement {
+    open: boolean;
+    showModal(): void;
+    close(): void;
+}
+
 const DEFAULT_GCODE_FILENAME = 'tube.gcode';
 const GCODE_STACK_BREAKPOINT_PX = 1500;
+const DEFAULT_WIND_ANGLE_DEGREES = 55;
+const MIN_WIND_ANGLE_DEGREES = 10;
+const MAX_WIND_ANGLE_DEGREES = 80;
 
 let currentPreview: IPreviewResult | null = null;
 const cyclone = window.cyclone ?? createWebCycloneApi();
@@ -76,6 +92,12 @@ let uploadedGCodeFilename = '';
 let gcodeFilename = DEFAULT_GCODE_FILENAME;
 let wasGCodePaneStacked = false;
 let gcodeToastTimer: number | null = null;
+let selectedRecipeMethod: TLayerMode = 'count';
+let customLayers: ICustomLayerDraft[] = [];
+let includeTerminalHoop = false;
+let customLayerDraft: ICustomLayerDraft[] = [];
+let draftIncludesTerminalHoop = false;
+let nextCustomLayerId = 1;
 
 window.addEventListener('DOMContentLoaded', () => {
     try {
@@ -110,10 +132,7 @@ function bindEvents(): void {
     byId<HTMLInputElement>('arm-run').addEventListener('change', updateRunControls);
     byId<HTMLSelectElement>('run-source').addEventListener('change', changeRunSource);
     byId<HTMLInputElement>('uploaded-gcode-file').addEventListener('change', loadUploadedGCode);
-    byId<HTMLInputElement>('layer-mode-count').addEventListener('change', changeLayerMode);
-    byId<HTMLInputElement>('layer-mode-thickness').addEventListener('change', changeLayerMode);
-    byId<HTMLLabelElement>('layer-count-field').addEventListener('pointerdown', () => selectLayerMode('count'));
-    byId<HTMLLabelElement>('target-thickness-field').addEventListener('pointerdown', () => selectLayerMode('thickness'));
+    byId<HTMLSelectElement>('recipe-method').addEventListener('change', changeRecipeMethod);
     byId<HTMLInputElement>('layer-count').addEventListener('beforeinput', preventNonIntegerLayerCountInput);
     byId<HTMLInputElement>('layer-count').addEventListener('input', () => changeLayerCount(false));
     byId<HTMLInputElement>('layer-count').addEventListener('change', () => changeLayerCount(true));
@@ -122,6 +141,22 @@ function bindEvents(): void {
     byId<HTMLInputElement>('tow-thickness').addEventListener('input', () => syncActiveLayerDimension(false));
     byId<HTMLInputElement>('tow-thickness').addEventListener('change', () => syncActiveLayerDimension(true));
     byId<HTMLInputElement>('fixed-delivery-head').addEventListener('change', updateDeliveryHeadControls);
+    byId<HTMLButtonElement>('edit-custom-layers').addEventListener('click', openCustomLayerDialog);
+    byId<HTMLButtonElement>('add-custom-layer').addEventListener('click', addCustomLayerDraft);
+    byId<HTMLButtonElement>('clear-custom-layers').addEventListener('click', clearCustomLayerDraft);
+    byId<HTMLButtonElement>('cancel-custom-layers').addEventListener('click', closeCustomLayerDialog);
+    byId<HTMLButtonElement>('apply-custom-layers').addEventListener('click', applyCustomLayerDraft);
+    byId<HTMLInputElement>('custom-terminal-hoop').addEventListener('change', changeDraftTerminalHoop);
+    const customDialog = byId<ICycloneDialogElement>('custom-layer-dialog');
+    customDialog.addEventListener('cancel', (event) => {
+        event.preventDefault();
+        closeCustomLayerDialog();
+    });
+    customDialog.addEventListener('click', (event) => {
+        if (event.target === customDialog) {
+            closeCustomLayerDialog();
+        }
+    });
     byId<HTMLButtonElement>('fit-preview').addEventListener('click', fitPreview);
     byId<HTMLButtonElement>('actual-size-preview').addEventListener('click', actualSizePreview);
     byId<HTMLButtonElement>('zoom-in-preview').addEventListener('click', () => zoomPreview(1.25));
@@ -143,6 +178,7 @@ function bindEvents(): void {
         gcodeFilenameInput.value = gcodeFilename;
     });
     bindCanvasEvents();
+    bindRecipeInvalidationEvents();
     updateLayerModeControls();
     updateDeliveryHeadControls();
     syncActiveLayerDimension(true);
@@ -377,6 +413,8 @@ function readRecipeInput(): ITubeRecipeInput {
         layerMode,
         layerCount: layerMode === 'count' && Number.isFinite(layerCount) ? layerCount : undefined,
         targetThickness: layerMode === 'thickness' && Number.isFinite(targetThickness) ? targetThickness : undefined,
+        customLayers: layerMode === 'custom' ? customLayers.map(toCustomRecipeLayer) : undefined,
+        includeTerminalHoop: layerMode === 'custom' ? includeTerminalHoop : undefined,
         towWidth: readNumber('tow-width'),
         towThickness: readNumber('tow-thickness'),
         defaultFeedRate: readNumber('feed-rate'),
@@ -412,7 +450,12 @@ function renderPreview(preview: IPreviewResult | null): void {
     fitPreview();
     renderLayerTable(preview);
 
-    addMetric(summary, 'Mode', preview.recipe.summary.layerMode === 'count' ? 'Layer count' : 'Total thickness');
+    const modeLabels: Record<TLayerMode, string> = {
+        count: 'Layer count',
+        thickness: 'Total thickness',
+        custom: 'Custom layers'
+    };
+    addMetric(summary, 'Mode', modeLabels[preview.recipe.summary.layerMode]);
     addMetric(summary, 'Layers', preview.recipe.summary.requestedLayerCount.toString());
     if (preview.recipe.summary.layerMode === 'thickness' && typeof preview.recipe.summary.targetThickness !== 'undefined') {
         addMetric(summary, 'Target thickness', `${formatMM(preview.recipe.summary.targetThickness)} mm`);
@@ -420,8 +463,12 @@ function renderPreview(preview: IPreviewResult | null): void {
     addMetric(summary, 'Achieved thickness', `${formatMM(preview.recipe.summary.achievedThickness)} mm`);
     addMetric(summary, 'Helical', preview.recipe.summary.helicalLayerCount.toString());
     addMetric(summary, 'Hoop', preview.recipe.summary.hoopLayerCount.toString());
-    addMetric(summary, 'Pattern', preview.recipe.summary.patternNumber.toString());
-    addMetric(summary, 'Circuits', preview.recipe.summary.numCircuits.toString());
+    if (typeof preview.recipe.summary.patternNumber === 'number') {
+        addMetric(summary, 'Pattern', preview.recipe.summary.patternNumber.toString());
+    }
+    if (typeof preview.recipe.summary.numCircuits === 'number') {
+        addMetric(summary, 'Circuits', preview.recipe.summary.numCircuits.toString());
+    }
     addMetric(summary, 'G-code lines', preview.plan.gcode.length.toString());
     addMetric(summary, 'Time', `${Math.round(preview.plan.totalTimeS)} s`);
     addMetric(summary, 'Tow', `${preview.plan.totalTowUseM.toFixed(2)} m`);
@@ -434,16 +481,13 @@ function renderPreview(preview: IPreviewResult | null): void {
 }
 
 function updateLayerModeControls(): void {
-    const thicknessMode = getLayerMode() === 'thickness';
-    const layerCountInput = byId<HTMLInputElement>('layer-count');
-    const targetThicknessInput = byId<HTMLInputElement>('target-thickness');
-    const layerCountField = byId<HTMLLabelElement>('layer-count-field');
-    const targetThicknessField = byId<HTMLLabelElement>('target-thickness-field');
-
-    layerCountInput.disabled = thicknessMode;
-    targetThicknessInput.disabled = !thicknessMode;
-    layerCountField.classList.toggle('inactive-field', thicknessMode);
-    targetThicknessField.classList.toggle('inactive-field', !thicknessMode);
+    const layerMode = getLayerMode();
+    const customMode = layerMode === 'custom';
+    byId<HTMLDivElement>('standard-recipe-fields').hidden = customMode;
+    byId<HTMLDivElement>('custom-recipe-card').hidden = !customMode;
+    byId<HTMLLabelElement>('layer-count-field').hidden = layerMode !== 'count';
+    byId<HTMLLabelElement>('target-thickness-field').hidden = layerMode !== 'thickness';
+    updateCustomLayerSummary();
 }
 
 function updateDeliveryHeadControls(): void {
@@ -454,19 +498,25 @@ function updateDeliveryHeadControls(): void {
     byId<HTMLLabelElement>('lead-out-field').classList.toggle('inactive-field', fixedDeliveryHead);
 }
 
-function changeLayerMode(): void {
-    updateLayerModeControls();
-    syncActiveLayerDimension(true);
-}
-
-function selectLayerMode(layerMode: TLayerMode): void {
-    const input = byId<HTMLInputElement>(layerMode === 'thickness' ? 'layer-mode-thickness' : 'layer-mode-count');
-    if (input.checked) {
-        return;
+function changeRecipeMethod(): void {
+    const select = byId<HTMLSelectElement>('recipe-method');
+    const nextMethod = select.value as TLayerMode;
+    if (selectedRecipeMethod === 'custom' && nextMethod !== 'custom' && hasCustomRecipe()) {
+        const confirmed = window.confirm('Switching recipe method will discard the custom layer sequence. Continue?');
+        if (!confirmed) {
+            select.value = selectedRecipeMethod;
+            return;
+        }
+        customLayers = [];
+        includeTerminalHoop = false;
     }
 
-    input.checked = true;
-    changeLayerMode();
+    selectedRecipeMethod = nextMethod;
+    updateLayerModeControls();
+    if (nextMethod !== 'custom') {
+        syncActiveLayerDimension(true);
+    }
+    invalidateGeneratedRecipe();
 }
 
 function preventNonIntegerLayerCountInput(event: InputEvent): void {
@@ -490,7 +540,11 @@ function normalizeLayerCountInput(): void {
 
 function syncActiveLayerDimension(snapTargetThickness: boolean): void {
     syncTargetThicknessConstraints();
-    if (getLayerMode() === 'thickness') {
+    const layerMode = getLayerMode();
+    if (layerMode === 'custom') {
+        return;
+    }
+    if (layerMode === 'thickness') {
         syncLayerCountFromTargetThickness(snapTargetThickness);
         return;
     }
@@ -540,6 +594,225 @@ function syncTargetThicknessConstraints(): void {
     const layerThickness = towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
     targetThicknessInput.min = formatMM(layerThickness * 2);
     targetThicknessInput.step = formatMM(layerThickness);
+}
+
+function bindRecipeInvalidationEvents(): void {
+    const recipeForm = byId<HTMLDivElement>('tube-recipe-form');
+    recipeForm.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((input) => {
+        if (input.id !== 'recipe-method') {
+            input.addEventListener('input', invalidateGeneratedRecipe);
+        }
+    });
+}
+
+function invalidateGeneratedRecipe(): void {
+    if (!currentPreview) {
+        return;
+    }
+    byId<HTMLInputElement>('arm-run').checked = false;
+    resetGeneratedRecipe();
+    updateRunControls();
+    setArtifactPaths(null);
+    setRecipeMessage('Recipe changed. Generate a new preview before running.');
+}
+
+function openCustomLayerDialog(): void {
+    customLayerDraft = customLayers.map((layer) => ({...layer}));
+    draftIncludesTerminalHoop = includeTerminalHoop;
+    byId<HTMLInputElement>('custom-terminal-hoop').checked = draftIncludesTerminalHoop;
+    byId<HTMLDivElement>('custom-layer-dialog-message').textContent = '';
+    renderCustomLayerDraft();
+    byId<ICycloneDialogElement>('custom-layer-dialog').showModal();
+}
+
+function closeCustomLayerDialog(): void {
+    const dialog = byId<ICycloneDialogElement>('custom-layer-dialog');
+    if (dialog.open) {
+        dialog.close();
+    }
+}
+
+function addCustomLayerDraft(): void {
+    const configuredAngle = readNumber('wind-angle');
+    customLayerDraft.push({
+        id: nextCustomLayerId++,
+        windType: 'helical',
+        windAngle: Number.isFinite(configuredAngle) ? configuredAngle : DEFAULT_WIND_ANGLE_DEGREES
+    });
+    renderCustomLayerDraft();
+}
+
+function clearCustomLayerDraft(): void {
+    if (customLayerDraft.length === 0 && !draftIncludesTerminalHoop) {
+        return;
+    }
+    if (!window.confirm('Clear all custom layers, including the final single-pass hoop?')) {
+        return;
+    }
+    customLayerDraft = [];
+    draftIncludesTerminalHoop = false;
+    byId<HTMLInputElement>('custom-terminal-hoop').checked = false;
+    renderCustomLayerDraft();
+}
+
+function changeDraftTerminalHoop(): void {
+    draftIncludesTerminalHoop = byId<HTMLInputElement>('custom-terminal-hoop').checked;
+    updateDraftTerminalRow();
+}
+
+function applyCustomLayerDraft(): void {
+    const validationError = getCustomLayerDraftError();
+    if (validationError) {
+        byId<HTMLDivElement>('custom-layer-dialog-message').textContent = validationError;
+        return;
+    }
+
+    customLayers = customLayerDraft.map((layer) => ({...layer}));
+    includeTerminalHoop = draftIncludesTerminalHoop;
+    closeCustomLayerDialog();
+    updateCustomLayerSummary();
+    invalidateGeneratedRecipe();
+}
+
+function getCustomLayerDraftError(): string | null {
+    const invalidIndex = customLayerDraft.findIndex((layer) =>
+        layer.windType === 'helical'
+        && (!Number.isFinite(layer.windAngle)
+            || layer.windAngle < MIN_WIND_ANGLE_DEGREES
+            || layer.windAngle > MAX_WIND_ANGLE_DEGREES)
+    );
+    return invalidIndex >= 0
+        ? `Layer ${invalidIndex + 1} angle must be between ${MIN_WIND_ANGLE_DEGREES} and ${MAX_WIND_ANGLE_DEGREES} degrees.`
+        : null;
+}
+
+function renderCustomLayerDraft(): void {
+    const layerList = byId<HTMLDivElement>('custom-layer-list');
+    layerList.innerHTML = '';
+
+    if (customLayerDraft.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'custom-layer-empty';
+        empty.textContent = 'No ordinary layers. Add a layer or use the final single-pass hoop by itself.';
+        layerList.appendChild(empty);
+    }
+
+    customLayerDraft.forEach((layer, index) => {
+        layerList.appendChild(createCustomLayerDraftRow(layer, index));
+    });
+    updateDraftTerminalRow();
+    byId<HTMLDivElement>('custom-layer-dialog-message').textContent = '';
+}
+
+function createCustomLayerDraftRow(layer: ICustomLayerDraft, index: number): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'custom-layer-row';
+
+    const number = document.createElement('span');
+    number.className = 'custom-layer-number';
+    number.textContent = (index + 1).toString();
+
+    const typeLabel = document.createElement('label');
+    typeLabel.className = 'custom-layer-type';
+    typeLabel.textContent = 'Type';
+    const typeSelect = document.createElement('select');
+    const helicalOption = document.createElement('option');
+    helicalOption.value = 'helical';
+    helicalOption.textContent = 'Helical';
+    const hoopOption = document.createElement('option');
+    hoopOption.value = 'hoop';
+    hoopOption.textContent = 'Hoop (there and back)';
+    typeSelect.append(helicalOption, hoopOption);
+    typeSelect.value = layer.windType;
+    typeSelect.addEventListener('change', () => {
+        layer.windType = typeSelect.value as ICustomLayerDraft['windType'];
+        renderCustomLayerDraft();
+    });
+    typeLabel.appendChild(typeSelect);
+
+    const angleLabel = document.createElement('label');
+    angleLabel.className = 'custom-layer-angle';
+    angleLabel.textContent = 'Angle deg';
+    angleLabel.hidden = layer.windType !== 'helical';
+    const angleInput = document.createElement('input');
+    angleInput.type = 'number';
+    angleInput.min = MIN_WIND_ANGLE_DEGREES.toString();
+    angleInput.max = MAX_WIND_ANGLE_DEGREES.toString();
+    angleInput.step = '0.1';
+    angleInput.value = Number.isFinite(layer.windAngle) ? layer.windAngle.toString() : '';
+    angleInput.addEventListener('input', () => {
+        layer.windAngle = Number.parseFloat(angleInput.value);
+        byId<HTMLDivElement>('custom-layer-dialog-message').textContent = '';
+    });
+    angleLabel.appendChild(angleInput);
+
+    const actions = document.createElement('div');
+    actions.className = 'custom-layer-actions';
+    actions.appendChild(createCustomLayerAction('↑', `Move layer ${index + 1} up`, index === 0, () => moveCustomLayerDraft(index, -1)));
+    actions.appendChild(createCustomLayerAction('↓', `Move layer ${index + 1} down`, index === customLayerDraft.length - 1, () => moveCustomLayerDraft(index, 1)));
+    const deleteButton = createCustomLayerAction('Delete', `Delete layer ${index + 1}`, false, () => {
+        customLayerDraft.splice(index, 1);
+        renderCustomLayerDraft();
+    });
+    deleteButton.classList.add('danger');
+    actions.appendChild(deleteButton);
+
+    row.append(number, typeLabel, angleLabel, actions);
+    return row;
+}
+
+function createCustomLayerAction(
+    text: string,
+    label: string,
+    disabled: boolean,
+    action: () => void
+): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary';
+    button.textContent = text;
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.disabled = disabled;
+    button.addEventListener('click', action);
+    return button;
+}
+
+function moveCustomLayerDraft(index: number, offset: -1 | 1): void {
+    const destination = index + offset;
+    if (destination < 0 || destination >= customLayerDraft.length) {
+        return;
+    }
+    const layer = customLayerDraft[index];
+    customLayerDraft[index] = customLayerDraft[destination];
+    customLayerDraft[destination] = layer;
+    renderCustomLayerDraft();
+}
+
+function updateDraftTerminalRow(): void {
+    byId<HTMLParagraphElement>('terminal-layer-row').hidden = !draftIncludesTerminalHoop;
+}
+
+function updateCustomLayerSummary(): void {
+    const helicalCount = customLayers.filter((layer) => layer.windType === 'helical').length;
+    const hoopCount = customLayers.length - helicalCount + (includeTerminalHoop ? 1 : 0);
+    const totalCount = customLayers.length + (includeTerminalHoop ? 1 : 0);
+    const layerLabel = totalCount === 1 ? 'layer' : 'layers';
+    byId<HTMLElement>('custom-layer-summary').textContent = totalCount === 0
+        ? 'No custom layers'
+        : `${totalCount} ${layerLabel} · ${helicalCount} helical · ${hoopCount} hoop`;
+    byId<HTMLParagraphElement>('custom-terminal-summary').textContent =
+        `Final single-pass hoop: ${includeTerminalHoop ? 'Yes' : 'No'}`;
+}
+
+function hasCustomRecipe(): boolean {
+    return customLayers.length > 0 || includeTerminalHoop;
+}
+
+function toCustomRecipeLayer(layer: ICustomLayerDraft): TCustomRecipeLayer {
+    return layer.windType === 'helical'
+        ? {windType: 'helical', windAngle: layer.windAngle}
+        : {windType: 'hoop'};
 }
 
 function bindCanvasEvents(): void {
@@ -1564,7 +1837,7 @@ function getPlotBase64(plotDataUrl: string | null): string | null {
 }
 
 function getLayerMode(): TLayerMode {
-    return byId<HTMLInputElement>('layer-mode-thickness').checked ? 'thickness' : 'count';
+    return byId<HTMLSelectElement>('recipe-method').value as TLayerMode;
 }
 
 function readNumber(id: string): number {
