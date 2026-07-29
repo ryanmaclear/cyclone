@@ -831,6 +831,10 @@
                     <option value="heavy">Mixed helical/hoop (~40% hoop)</option>
                   </select>
                 </label>
+                <label id="terminal-final-hoop-field" class="checkbox-option full-width-field" hidden>
+                  <input id="terminal-final-hoop" type="checkbox" />
+                  Make final hoop terminal (single pass)
+                </label>
               </div>
               <div class="custom-recipe-card" id="custom-recipe-card" hidden>
                 <strong id="custom-layer-summary">No custom layers</strong>
@@ -914,7 +918,7 @@
                   </select>
                 </label>
                 <label>
-                  Upload file
+                  Upload G-code file
                   <input id="uploaded-gcode-file" type="file" />
                 </label>
               </div>

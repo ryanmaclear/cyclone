@@ -41,6 +41,17 @@ assert.deepStrictEqual(mediumRecipe.windParameters.layers.map((layer) => layer.w
 assert.strictEqual(mediumRecipe.windParameters.deliveryHead, undefined);
 assert.strictEqual(mediumRecipe.windParameters.disableSoftEndstops, undefined);
 
+const terminalMediumRecipe = generateTubeRecipe({
+    ...baseInput,
+    terminalFinalHoop: true
+});
+assert.strictEqual(terminalMediumRecipe.summary.achievedThickness, 3.5);
+const terminalMediumFinalLayer = terminalMediumRecipe.windParameters.layers[3];
+assert.strictEqual(terminalMediumFinalLayer.windType, ELayerType.HOOP);
+if (terminalMediumFinalLayer.windType === ELayerType.HOOP) {
+    assert.strictEqual(terminalMediumFinalLayer.terminal, true);
+}
+
 const fixedDeliveryHeadRecipe = generateTubeRecipe({
     ...baseInput,
     fixedDeliveryHead: true,
@@ -65,6 +76,28 @@ const heavyOverrideRecipe = generateTubeRecipe({
 assert.strictEqual(heavyOverrideRecipe.summary.requestedLayerCount, 5);
 assert.strictEqual(heavyOverrideRecipe.summary.helicalLayerCount, 3);
 assert.strictEqual(heavyOverrideRecipe.summary.hoopLayerCount, 2);
+
+const terminalHeavyRecipe = generateTubeRecipe({
+    ...baseInput,
+    strengthPreset: 'heavy',
+    layerCount: 5,
+    terminalFinalHoop: true
+});
+const terminalHeavyHoops = terminalHeavyRecipe.windParameters.layers.filter((layer) => layer.windType === ELayerType.HOOP);
+assert.strictEqual(terminalHeavyRecipe.summary.achievedThickness, 4.5);
+assert.strictEqual(terminalHeavyHoops.length, 2);
+if (terminalHeavyHoops[0].windType === ELayerType.HOOP && terminalHeavyHoops[1].windType === ELayerType.HOOP) {
+    assert.strictEqual(terminalHeavyHoops[0].terminal, false);
+    assert.strictEqual(terminalHeavyHoops[1].terminal, true);
+}
+
+const terminalLightRecipe = generateTubeRecipe({
+    ...baseInput,
+    strengthPreset: 'light',
+    terminalFinalHoop: true
+});
+assert.ok(terminalLightRecipe.windParameters.layers.every((layer) => layer.windType !== ELayerType.HOOP));
+assert.strictEqual(terminalLightRecipe.summary.achievedThickness, 4);
 
 const countModeIgnoresTargetThickness = generateTubeRecipe({
     ...baseInput,
@@ -235,6 +268,13 @@ const invalidFixedDeliveryHeadRecipe = validateTubeRecipeInput({
 assert.strictEqual(invalidFixedDeliveryHeadRecipe.valid, false);
 assert.ok(invalidFixedDeliveryHeadRecipe.errors.some((error) => error.includes('Fixed delivery head position')));
 
+const invalidTerminalFinalHoop = validateTubeRecipeInput({
+    ...baseInput,
+    terminalFinalHoop: 'yes' as unknown as boolean
+});
+assert.strictEqual(invalidTerminalFinalHoop.valid, false);
+assert.ok(invalidTerminalFinalHoop.errors.some((error) => error.includes('Terminal final hoop')));
+
 const plannedRecipe = planWindDetailed(mediumRecipe.windParameters, false, false);
 assert.ok(plannedRecipe.gcode.length > 0);
 assert.ok(plannedRecipe.totalTowUseM > 0);
@@ -248,6 +288,11 @@ assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'helical-pass' && segment.passDirection === 'back'));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.groupKind === 'lock'));
 assert.ok(plannedRecipe.previewSegments.some((segment) => segment.layerIndex === 3 && segment.groupKind === 'hoop-pass'));
+
+const terminalMediumPlan = planWindDetailed(terminalMediumRecipe.windParameters, false, false);
+const terminalMediumSegments = terminalMediumPlan.previewSegments.filter((segment) => segment.layerIndex === 3 && segment.groupKind === 'hoop-pass');
+assert.ok(terminalMediumSegments.some((segment) => segment.passDirection === 'there'));
+assert.ok(!terminalMediumSegments.some((segment) => segment.passDirection === 'back'));
 
 const customPlan = planWindDetailed(customRecipe.windParameters, false, false);
 const terminalSegments = customPlan.previewSegments.filter((segment) => segment.layerIndex === 3 && segment.groupKind === 'hoop-pass');

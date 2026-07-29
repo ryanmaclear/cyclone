@@ -141,6 +141,7 @@ function bindEvents(): void {
     byId<HTMLInputElement>('tow-thickness').addEventListener('input', () => syncActiveLayerDimension(false));
     byId<HTMLInputElement>('tow-thickness').addEventListener('change', () => syncActiveLayerDimension(true));
     byId<HTMLInputElement>('fixed-delivery-head').addEventListener('change', updateDeliveryHeadControls);
+    byId<HTMLSelectElement>('strength').addEventListener('change', updateStandardTerminalHoopControl);
     byId<HTMLButtonElement>('edit-custom-layers').addEventListener('click', openCustomLayerDialog);
     byId<HTMLButtonElement>('add-custom-layer').addEventListener('click', addCustomLayerDraft);
     byId<HTMLButtonElement>('clear-custom-layers').addEventListener('click', clearCustomLayerDraft);
@@ -415,6 +416,9 @@ function readRecipeInput(): ITubeRecipeInput {
         targetThickness: layerMode === 'thickness' && Number.isFinite(targetThickness) ? targetThickness : undefined,
         customLayers: layerMode === 'custom' ? customLayers.map(toCustomRecipeLayer) : undefined,
         includeTerminalHoop: layerMode === 'custom' ? includeTerminalHoop : undefined,
+        terminalFinalHoop: layerMode === 'count' && hasStandardHoopLayer()
+            ? byId<HTMLInputElement>('terminal-final-hoop').checked
+            : undefined,
         towWidth: readNumber('tow-width'),
         towThickness: readNumber('tow-thickness'),
         defaultFeedRate: readNumber('feed-rate'),
@@ -487,6 +491,7 @@ function updateLayerModeControls(): void {
     byId<HTMLDivElement>('custom-recipe-card').hidden = !customMode;
     byId<HTMLLabelElement>('layer-count-field').hidden = layerMode !== 'count';
     byId<HTMLLabelElement>('target-thickness-field').hidden = layerMode !== 'thickness';
+    updateStandardTerminalHoopControl();
     updateCustomLayerSummary();
 }
 
@@ -528,6 +533,18 @@ function preventNonIntegerLayerCountInput(event: InputEvent): void {
 function changeLayerCount(snapLayerCount: boolean): void {
     normalizeLayerCountInput();
     syncTargetThicknessFromLayerCount(snapLayerCount);
+    updateStandardTerminalHoopControl();
+}
+
+function updateStandardTerminalHoopControl(): void {
+    byId<HTMLLabelElement>('terminal-final-hoop-field').hidden =
+        getLayerMode() !== 'count' || !hasStandardHoopLayer();
+}
+
+function hasStandardHoopLayer(): boolean {
+    const layerCount = readNumber('layer-count');
+    const distribution = byId<HTMLSelectElement>('strength').value as TStrengthPreset;
+    return Number.isInteger(layerCount) && layerCount > 1 && distribution !== 'light';
 }
 
 function normalizeLayerCountInput(): void {
@@ -1491,7 +1508,9 @@ function formatLayerFacts(preview: IPreviewResult, layer: TLayerParameters, inde
         return `${circuitCount} circuits, ${layer.patternNumber} starts, ${layer.skipInitialNearLock ? 'initial lock skipped' : 'initial lock included'}`;
     }
     if (layer.windType === 'hoop') {
-        return 'Outer hoop reinforcement; uses fixed 180 deg end locks';
+        return layer.terminal
+            ? 'Final single-pass hoop; uses a fixed 180 deg far-end lock'
+            : 'Outer hoop reinforcement; uses fixed 180 deg end locks';
     }
     return 'Offsets the next layer start angle';
 }

@@ -17,6 +17,7 @@ export interface ITubeRecipeInput {
     targetThickness?: number;
     customLayers?: TCustomRecipeLayer[];
     includeTerminalHoop?: boolean;
+    terminalFinalHoop?: boolean;
     towWidth: number;
     towThickness: number;
     defaultFeedRate: number;
@@ -133,6 +134,10 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
         });
     }
 
+    if (typeof input.terminalFinalHoop !== 'undefined' && typeof input.terminalFinalHoop !== 'boolean') {
+        errors.push('Terminal final hoop selection must be true or false.');
+    }
+
     if (!Number.isFinite(input.leadInMM) || input.leadInMM < 0) {
         errors.push('Lead-in must be zero or greater.');
     }
@@ -176,8 +181,8 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
     const hoopLayerCount = layers.filter((layer) => layer.windType === ELayerType.HOOP).length;
     const numCircuits = customMode ? undefined : calculateHelicalCircuitCount(input.diameter, input.towWidth, input.windAngle);
     const patternNumber = typeof numCircuits === 'number' ? choosePatternNumber(numCircuits) : undefined;
-    const ordinaryLayerCount = customMode ? (input.customLayers || []).length : requestedLayerCount;
-    const coverageCount = ordinaryLayerCount * TOW_COVERAGES_PER_RECIPE_LAYER + (customMode && input.includeTerminalHoop ? 1 : 0);
+    const terminalLayerCount = layers.filter((layer) => layer.windType === ELayerType.HOOP && layer.terminal).length;
+    const coverageCount = requestedLayerCount * TOW_COVERAGES_PER_RECIPE_LAYER - terminalLayerCount;
     const achievedThickness = coverageCount * input.towThickness;
 
     return {
@@ -211,7 +216,7 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
         warnings: [
             ...(customMode ? [] : ['Layer distribution is a recipe preset, not a certified load rating.']),
             'Thickness assumes each there-and-back layer deposits two complete tow coverages.',
-            ...(customMode && input.includeTerminalHoop ? ['The final single-pass hoop contributes one tow coverage.'] : []),
+            ...(terminalLayerCount > 0 ? ['The final single-pass hoop contributes one tow coverage.'] : []),
             'Tow thickness is recorded but the current planner does not increase mandrel diameter between layers.',
             'Hoop and helical locks create trim regions at the ends of the part.'
         ]
@@ -231,7 +236,9 @@ function buildStandardLayers(input: ITubeRecipeInput): TLayerParameters[] {
     for (let index = 0; index < layerCounts.hoopLayerCount; index++) {
         layers.push({
             windType: ELayerType.HOOP,
-            terminal: false
+            terminal: input.layerMode === 'count'
+                && input.terminalFinalHoop === true
+                && index === layerCounts.hoopLayerCount - 1
         });
     }
 
