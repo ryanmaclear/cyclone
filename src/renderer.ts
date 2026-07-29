@@ -12,6 +12,8 @@ type TStrengthPreset = import('./recipe').TStrengthPreset;
 type TColorMode = 'layer' | 'circuit' | 'pass';
 type TRunSource = 'generated' | 'uploaded';
 
+const TOW_COVERAGES_PER_RECIPE_LAYER = 2;
+
 interface IWrappedPreviewSegment {
     source: IPreviewSegment;
     start: {x: number; y: number};
@@ -507,7 +509,8 @@ function syncTargetThicknessFromLayerCount(snapLayerCount: boolean): void {
     if (snapLayerCount) {
         byId<HTMLInputElement>('layer-count').value = roundedLayerCount.toString();
     }
-    byId<HTMLInputElement>('target-thickness').value = formatMM(roundedLayerCount * towThickness);
+    const layerThickness = towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
+    byId<HTMLInputElement>('target-thickness').value = formatMM(roundedLayerCount * layerThickness);
 }
 
 function syncLayerCountFromTargetThickness(snapTargetThickness: boolean): void {
@@ -517,10 +520,11 @@ function syncLayerCountFromTargetThickness(snapTargetThickness: boolean): void {
         return;
     }
 
-    const layerCount = Math.max(1, Math.round(targetThickness / towThickness));
+    const layerThickness = towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
+    const layerCount = Math.max(1, Math.round(targetThickness / layerThickness));
     byId<HTMLInputElement>('layer-count').value = layerCount.toString();
     if (snapTargetThickness) {
-        byId<HTMLInputElement>('target-thickness').value = formatMM(layerCount * towThickness);
+        byId<HTMLInputElement>('target-thickness').value = formatMM(layerCount * layerThickness);
     }
 }
 
@@ -533,8 +537,9 @@ function syncTargetThicknessConstraints(): void {
         return;
     }
 
-    targetThicknessInput.min = formatMM(towThickness * 2);
-    targetThicknessInput.step = formatMM(towThickness);
+    const layerThickness = towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
+    targetThicknessInput.min = formatMM(layerThickness * 2);
+    targetThicknessInput.step = formatMM(layerThickness);
 }
 
 function bindCanvasEvents(): void {

@@ -60,6 +60,7 @@ const HOOP_RATIOS: Record<TStrengthPreset, number> = {
 export const MAX_AUTO_PATTERN_NUMBER = 4;
 export const MIN_WIND_ANGLE_DEGREES = 10;
 export const MAX_WIND_ANGLE_DEGREES = 80;
+export const TOW_COVERAGES_PER_RECIPE_LAYER = 2;
 const THICKNESS_LAYER_TOLERANCE = 0.000001;
 
 export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidationResult {
@@ -90,11 +91,12 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
         requirePositive(input.targetThickness, 'Target thickness', errors);
 
         if (Number.isFinite(input.targetThickness) && Number.isFinite(input.towThickness) && input.towThickness > 0) {
-            const calculatedLayerCount = input.targetThickness / input.towThickness;
+            const layerThickness = input.towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
+            const calculatedLayerCount = input.targetThickness / layerThickness;
             const roundedLayerCount = Math.round(calculatedLayerCount);
 
             if (Math.abs(calculatedLayerCount - roundedLayerCount) > THICKNESS_LAYER_TOLERANCE) {
-                errors.push('Target thickness must be an exact multiple of tow thickness.');
+                errors.push('Target thickness must be an exact multiple of one there-and-back layer thickness.');
             }
 
             if (roundedLayerCount < 2) {
@@ -120,7 +122,7 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
     }
 
     if (!Object.prototype.hasOwnProperty.call(PRESET_LAYER_COUNTS, input.strengthPreset)) {
-        errors.push('Strength preset must be light, medium, or heavy.');
+        errors.push('Layer distribution preset must be light, medium, or heavy.');
     }
 
     if (input.fixedDeliveryHead && !Number.isFinite(input.fixedDeliveryHeadPosition)) {
@@ -145,7 +147,7 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
     const hoopLayerCount = layerCounts.hoopLayerCount;
     const numCircuits = calculateHelicalCircuitCount(input.diameter, input.towWidth, input.windAngle);
     const patternNumber = choosePatternNumber(numCircuits);
-    const achievedThickness = requestedLayerCount * input.towThickness;
+    const achievedThickness = requestedLayerCount * input.towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
     const layers: TLayerParameters[] = [];
 
     for (let index = 0; index < helicalLayerCount; index++) {
@@ -197,7 +199,8 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
             achievedThickness
         },
         warnings: [
-            'Strength is a recipe preset, not a certified load rating.',
+            'Layer distribution is a recipe preset, not a certified load rating.',
+            'Thickness assumes each there-and-back layer deposits two complete tow coverages.',
             'Tow thickness is recorded but the current planner does not increase mandrel diameter between layers.',
             'Hoop and helical locks create trim regions at the ends of the part.'
         ]
@@ -231,16 +234,14 @@ function getHoopLayerCount(layerCount: number, strengthPreset: TStrengthPreset):
 }
 
 function getLayerCounts(input: ITubeRecipeInput): {requestedLayerCount: number; helicalLayerCount: number; hoopLayerCount: number} {
+    let requestedLayerCount: number;
     if (input.layerMode === 'thickness') {
-        const requestedLayerCount = Math.round((input.targetThickness || 0) / input.towThickness);
-        return {
-            requestedLayerCount,
-            helicalLayerCount: requestedLayerCount - 1,
-            hoopLayerCount: 1
-        };
+        const layerThickness = input.towThickness * TOW_COVERAGES_PER_RECIPE_LAYER;
+        requestedLayerCount = Math.round((input.targetThickness || 0) / layerThickness);
+    } else {
+        requestedLayerCount = input.layerCount || PRESET_LAYER_COUNTS[input.strengthPreset];
     }
 
-    const requestedLayerCount = input.layerCount || PRESET_LAYER_COUNTS[input.strengthPreset];
     const hoopLayerCount = getHoopLayerCount(requestedLayerCount, input.strengthPreset);
     return {
         requestedLayerCount,

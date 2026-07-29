@@ -79,6 +79,10 @@
         grid-template-columns: 1fr 1fr;
       }
 
+      .full-width-field {
+        grid-column: 1 / -1;
+      }
+
       .layer-mode-panel {
         border: 1px solid #d8ddd2;
         border-radius: 4px;
@@ -661,16 +665,16 @@
                   </label>
                   <label id="target-thickness-field" class="inactive-field">
                     Total thickness mm
-                    <input id="target-thickness" type="number" min="1" step="0.5" value="2" disabled />
+                    <input id="target-thickness" type="number" min="2" step="1" value="4" disabled />
                   </label>
                 </div>
               </div>
-              <label>
-                Strength
+              <label id="layer-distribution-field" class="full-width-field">
+                Layer distribution
                 <select id="strength">
-                  <option value="light">Light</option>
-                  <option value="medium" selected>Medium</option>
-                  <option value="heavy">Heavy</option>
+                  <option value="light">Helical only (0% hoop)</option>
+                  <option value="medium" selected>Mostly helical (~25% hoop)</option>
+                  <option value="heavy">Mixed helical/hoop (~40% hoop)</option>
                 </select>
               </label>
             </div>
