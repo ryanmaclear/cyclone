@@ -3,6 +3,7 @@ import { ELayerType, IWindParameters, TLayerParameters } from './planner/types';
 
 export type TStrengthPreset = 'light' | 'medium' | 'heavy';
 export type TLayerMode = 'count' | 'thickness' | 'custom';
+export type TRecipeSummaryMode = TLayerMode | 'artifact';
 export type TCustomRecipeLayer =
     | {windType: 'helical'; windAngle: number}
     | {windType: 'hoop'};
@@ -36,10 +37,11 @@ export interface IGeneratedRecipe {
 }
 
 export interface IRecipeSummary {
-    layerMode: TLayerMode;
+    layerMode: TRecipeSummaryMode;
     requestedLayerCount: number;
     helicalLayerCount: number;
     hoopLayerCount: number;
+    skipLayerCount?: number;
     numCircuits?: number;
     patternNumber?: number;
     targetThickness?: number;

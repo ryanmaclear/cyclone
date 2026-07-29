@@ -5,7 +5,7 @@
   "main": "dist/src/main.js",
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node ./dist/test/recipe.test.js && node ./dist/test/web-api-client.test.js",
+    "test": "npm run build && node ./dist/test/recipe.test.js && node ./dist/test/artifact.test.js && node ./dist/test/web-api-client.test.js",
     "watch": "tsc -w",
     "lint": "eslint -c .eslintrc --ext .ts ./src",
     "start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron --disable-gpu --disable-software-rasterizer --disable-gpu-sandbox .",

@@ -10,8 +10,10 @@ import { MarlinPort } from './marlin-port';
 import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
+import { createArtifactRecipe } from './artifact';
 import { getServerConfig } from './server-config';
 import {
+    IArtifactPreviewRequest,
     IMarlinStatus,
     IPreviewRequest,
     ISaveArtifactsRequest,
@@ -65,6 +67,21 @@ app.post('/api/recipe/preview', async (request: Request<TEmptyParams, unknown, I
     try {
         const recipe = generateTubeRecipe(request.body.recipeInput);
         const plan = planWindDetailed(recipe.windParameters, false, false);
+        const plotStream = plotGCode(plan.gcode);
+        const plotDataUrl = plotStream ? `data:image/png;base64,${(await streamToBuffer(plotStream)).toString('base64')}` : null;
+        response.json({ recipe, plan, plotDataUrl });
+    } catch (error) {
+        response.status(400).json({ error: getErrorMessage(error) });
+    }
+});
+
+app.post('/api/artifact/preview', async (request: Request<TEmptyParams, unknown, IArtifactPreviewRequest>, response: Response) => {
+    try {
+        const recipe = createArtifactRecipe(request.body.windParameters);
+        const plan = planWindDetailed(recipe.windParameters, false, false);
+        if (plan.layers.length !== recipe.windParameters.layers.length) {
+            throw new Error('Artifact could not be fully planned.');
+        }
         const plotStream = plotGCode(plan.gcode);
         const plotDataUrl = plotStream ? `data:image/png;base64,${(await streamToBuffer(plotStream)).toString('base64')}` : null;
         response.json({ recipe, plan, plotDataUrl });

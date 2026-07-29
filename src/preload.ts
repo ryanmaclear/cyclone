@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  IArtifactPreviewRequest,
   IMarlinStatus,
   IPreviewRequest,
   ISaveArtifactsRequest,
@@ -8,6 +9,7 @@ import {
 
 contextBridge.exposeInMainWorld('cyclone', {
   generatePreview: (request: IPreviewRequest) => ipcRenderer.invoke('recipe:generate-preview', request),
+  generateArtifactPreview: (request: IArtifactPreviewRequest) => ipcRenderer.invoke('artifact:generate-preview', request),
   chooseBasePath: () => ipcRenderer.invoke('recipe:choose-base-path'),
   saveArtifacts: (request: ISaveArtifactsRequest) => ipcRenderer.invoke('recipe:save-artifacts', request),
   listSerialPorts: () => ipcRenderer.invoke('serial:list-ports'),

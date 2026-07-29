@@ -79,6 +79,81 @@
         grid-template-columns: 1fr 1fr;
       }
 
+      .tube-options {
+        border: 0;
+        margin: 0;
+        min-width: 0;
+        padding: 0;
+      }
+
+      .artifact-upload-card {
+        background: #f6f8f4;
+        border: 1px solid #d8ddd2;
+        border-radius: 4px;
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+        padding: 10px;
+      }
+
+      .artifact-upload-card.loaded {
+        background: #edf4f2;
+        border-color: #a9c9c0;
+      }
+
+      .artifact-upload-status {
+        color: #66716a;
+        font-size: 12px;
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .artifact-upload-status.error {
+        color: #a33a32;
+      }
+
+      .artifact-upload-card button {
+        justify-self: start;
+      }
+
+      .generation-overlay {
+        align-items: center;
+        background: rgba(24, 32, 35, 0.58);
+        display: flex;
+        inset: 0;
+        justify-content: center;
+        padding: 20px;
+        position: fixed;
+        z-index: 20;
+      }
+
+      .generation-popup {
+        align-items: center;
+        background: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 18px 60px rgba(20, 28, 32, 0.28);
+        display: flex;
+        gap: 14px;
+        max-width: 420px;
+        padding: 18px 20px;
+      }
+
+      .generation-spinner {
+        animation: generation-spin 0.8s linear infinite;
+        border: 4px solid #d8ddd2;
+        border-radius: 50%;
+        border-top-color: #2f6f73;
+        flex: 0 0 auto;
+        height: 26px;
+        width: 26px;
+      }
+
+      @keyframes generation-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .full-width-field {
         grid-column: 1 / -1;
       }
@@ -124,6 +199,22 @@
 
       dialog::backdrop {
         background: rgba(24, 32, 35, 0.58);
+      }
+
+      .artifact-error-dialog {
+        width: 480px;
+      }
+
+      .artifact-error-content {
+        display: grid;
+      }
+
+      .artifact-error-message {
+        color: #3d464d;
+        line-height: 1.45;
+        margin: 0;
+        overflow-wrap: anywhere;
+        padding: 16px 18px;
       }
 
       .custom-dialog {
@@ -793,7 +884,8 @@
         <section>
           <h2>Tube Recipe</h2>
           <div class="panel-body" id="tube-recipe-form">
-            <div class="field-grid">
+            <fieldset id="tube-options" class="tube-options">
+              <div class="field-grid">
               <label>
                 Diameter mm
                 <input id="diameter" type="number" min="1" step="0.01" value="69.75" />
@@ -841,11 +933,11 @@
                 <p id="custom-terminal-summary">Final single-pass hoop: No</p>
                 <button id="edit-custom-layers" class="secondary" type="button">Edit custom layers…</button>
               </div>
-            </div>
+              </div>
 
-            <details>
-              <summary>Advanced</summary>
-              <div class="field-grid" style="margin-top: 12px;">
+              <details>
+                <summary>Advanced</summary>
+                <div class="field-grid" style="margin-top: 12px;">
                 <label>
                   Tow width mm
                   <input id="tow-width" type="number" min="0.01" step="0.01" value="7" />
@@ -878,12 +970,23 @@
                   <input id="disable-soft-endstops" type="checkbox" checked />
                   Disabled Soft Endstops
                 </label>
-              </div>
-            </details>
+                </div>
+              </details>
+            </fieldset>
 
             <div class="button-row">
               <button id="generate">Generate Preview</button>
               <button id="clear-recipe" class="secondary" disabled>Clear Recipe</button>
+            </div>
+            <div class="artifact-upload-card" id="artifact-upload-card">
+              <label>
+                Upload artifact file (.wind)
+                <input id="artifact-file" type="file" accept=".wind,application/json" />
+              </label>
+              <p id="artifact-upload-status" class="artifact-upload-status">No artifact loaded</p>
+              <button id="discard-artifact" class="secondary" type="button" hidden>Discard artifact and unlock options</button>
+            </div>
+            <div class="button-row">
               <button id="save" class="secondary" disabled>Save Artifacts</button>
             </div>
             <div id="recipe-message" class="message"></div>
@@ -999,6 +1102,37 @@
         </div>
       </section>
     </main>
+
+    <div
+      id="generation-overlay"
+      class="generation-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="generation-message"
+      hidden
+    >
+      <div class="generation-popup">
+        <span class="generation-spinner" aria-hidden="true"></span>
+        <strong id="generation-message">Generating preview…</strong>
+      </div>
+    </div>
+
+    <dialog
+      id="artifact-error-dialog"
+      class="artifact-error-dialog"
+      aria-labelledby="artifact-error-dialog-title"
+      aria-describedby="artifact-error-message"
+    >
+      <div class="artifact-error-content">
+        <div class="custom-dialog-header">
+          <h2 id="artifact-error-dialog-title">Artifact could not be loaded</h2>
+        </div>
+        <p id="artifact-error-message" class="artifact-error-message"></p>
+        <footer class="custom-dialog-footer">
+          <button id="close-artifact-error" type="button" autofocus>OK</button>
+        </footer>
+      </div>
+    </dialog>
 
     <dialog id="custom-layer-dialog" aria-labelledby="custom-layer-dialog-title">
       <div class="custom-dialog">

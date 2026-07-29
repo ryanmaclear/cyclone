@@ -6,6 +6,10 @@ export interface IPreviewRequest {
     recipeInput: ITubeRecipeInput;
 }
 
+export interface IArtifactPreviewRequest {
+    windParameters: unknown;
+}
+
 export interface IPreviewResult {
     recipe: IGeneratedRecipe;
     plan: IPlanWindResult;
@@ -50,6 +54,7 @@ export interface IMarlinStatus {
 
 export interface ICycloneApi {
     generatePreview(request: IPreviewRequest): Promise<IPreviewResult>;
+    generateArtifactPreview(request: IArtifactPreviewRequest): Promise<IPreviewResult>;
     chooseBasePath(): Promise<string | null>;
     saveArtifacts(request: ISaveArtifactsRequest): Promise<ISaveArtifactsResult>;
     listSerialPorts(): Promise<ISerialPortOption[]>;

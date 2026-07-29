@@ -1,4 +1,5 @@
 import type {
+    IArtifactPreviewRequest,
     ICycloneApi,
     IMarlinStatus,
     IPreviewRequest,
@@ -46,6 +47,7 @@ export function createWebCycloneApi(): ICycloneApi {
 
     return {
         generatePreview: (request: IPreviewRequest) => postJson<IPreviewResult>('/api/recipe/preview', request),
+        generateArtifactPreview: (request: IArtifactPreviewRequest) => postJson<IPreviewResult>('/api/artifact/preview', request),
         chooseBasePath: async () => window.prompt('Enter output base path on server (example: /home/pi/jobs/tube1)') ?? null,
         saveArtifacts: (request: ISaveArtifactsRequest) => postJson<ISaveArtifactsResult>('/api/recipe/artifacts', request),
         listSerialPorts: () => getJson<ISerialPortOption[]>('/api/serial/ports'),

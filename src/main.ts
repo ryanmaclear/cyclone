@@ -7,7 +7,9 @@ import { MarlinPort } from './marlin-port';
 import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
+import { createArtifactRecipe } from './artifact';
 import {
+  IArtifactPreviewRequest,
   IMarlinStatus,
   IPreviewRequest,
   IPreviewResult,
@@ -62,6 +64,24 @@ ipcMain.handle('recipe:generate-preview', async (_event, request: IPreviewReques
   const plotStream = plotGCode(plan.gcode);
   const plotDataUrl = plotStream ? `data:image/png;base64,${(await streamToBuffer(plotStream)).toString('base64')}` : null;
   console.log(`Generated ${plan.gcode.length} G-code lines.`);
+
+  return {
+    recipe,
+    plan,
+    plotDataUrl
+  };
+});
+
+ipcMain.handle('artifact:generate-preview', async (_event, request: IArtifactPreviewRequest): Promise<IPreviewResult> => {
+  console.log('Validating artifact and generating preview...');
+  const recipe = createArtifactRecipe(request.windParameters);
+  const plan = planWindDetailed(recipe.windParameters, false, false);
+  if (plan.layers.length !== recipe.windParameters.layers.length) {
+    throw new Error('Artifact could not be fully planned.');
+  }
+  const plotStream = plotGCode(plan.gcode);
+  const plotDataUrl = plotStream ? `data:image/png;base64,${(await streamToBuffer(plotStream)).toString('base64')}` : null;
+  console.log(`Generated ${plan.gcode.length} G-code lines from artifact.`);
 
   return {
     recipe,

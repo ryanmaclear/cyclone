@@ -7,6 +7,7 @@ type ISerialPortOption = import('./app-types').ISerialPortOption;
 type TLayerParameters = import('./planner/types').TLayerParameters;
 type ITubeRecipeInput = import('./recipe').ITubeRecipeInput;
 type TLayerMode = import('./recipe').TLayerMode;
+type TRecipeSummaryMode = import('./recipe').TRecipeSummaryMode;
 type TStrengthPreset = import('./recipe').TStrengthPreset;
 type TCustomRecipeLayer = import('./recipe').TCustomRecipeLayer;
 
@@ -40,6 +41,12 @@ interface ICustomLayerDraft {
     id: number;
     windType: 'helical' | 'hoop';
     windAngle: number;
+}
+
+interface ITubeOptionControlState {
+    id: string;
+    value: string;
+    checked?: boolean;
 }
 
 interface ICycloneDialogElement extends HTMLDialogElement {
@@ -89,6 +96,9 @@ let currentStatus: IMarlinStatus = {
 let selectedRunSource: TRunSource = 'generated';
 let uploadedGCodeCommands: string[] = [];
 let uploadedGCodeFilename = '';
+let loadedArtifactFilename = '';
+let artifactUploadInProgress = false;
+let tubeOptionControlSnapshot: ITubeOptionControlState[] | null = null;
 let gcodeFilename = DEFAULT_GCODE_FILENAME;
 let wasGCodePaneStacked = false;
 let gcodeToastTimer: number | null = null;
@@ -122,6 +132,11 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('generate').addEventListener('click', generatePreview);
     byId<HTMLButtonElement>('clear-recipe').addEventListener('click', clearGeneratedRecipe);
     byId<HTMLButtonElement>('save').addEventListener('click', saveArtifacts);
+    byId<HTMLInputElement>('artifact-file').addEventListener('change', loadArtifactFile);
+    byId<HTMLButtonElement>('discard-artifact').addEventListener('click', discardArtifact);
+    byId<HTMLButtonElement>('close-artifact-error').addEventListener('click', () => {
+        byId<ICycloneDialogElement>('artifact-error-dialog').close();
+    });
     byId<HTMLButtonElement>('refresh-ports').addEventListener('click', refreshPorts);
     byId<HTMLButtonElement>('connect').addEventListener('click', connectSerial);
     byId<HTMLButtonElement>('disconnect').addEventListener('click', disconnectSerial);
@@ -192,34 +207,34 @@ function bindEvents(): void {
 }
 
 async function generatePreview(): Promise<void> {
-    setRecipeMessage('Generating preview...');
-    setArtifactPaths(null);
     byId<HTMLInputElement>('arm-run').checked = false;
+    resetGeneratedRecipe();
+    updateRunControls();
+    setArtifactPaths(null);
+    setRecipeMessage('Generating preview...');
     byId<HTMLButtonElement>('generate').disabled = true;
     syncActiveLayerDimension(true);
 
     try {
-        const preview = await cyclone.generatePreview({ recipeInput: readRecipeInput() });
-        currentPreview = preview;
-        prepareWrappedPreviewSegments(preview);
-        resetLayerVisibility(preview);
-        renderPreview(preview);
-        byId<HTMLButtonElement>('save').disabled = false;
-        selectedRunSource = 'generated';
-        byId<HTMLSelectElement>('run-source').value = selectedRunSource;
-        updateRunControls();
-        setRecipeMessage('Preview generated.');
+        const request = {recipeInput: readRecipeInput()};
+        await showGenerationPopup('Generating recipe preview…');
+        const preview = await cyclone.generatePreview(request);
+        applyGeneratedPreview(preview, 'Preview generated.');
     } catch (error) {
         resetGeneratedRecipe();
         updateRunControls();
         setRecipeMessage(getErrorMessage(error));
         console.error(error);
     } finally {
-        byId<HTMLButtonElement>('generate').disabled = false;
+        hideGenerationPopup();
+        byId<HTMLButtonElement>('generate').disabled = loadedArtifactFilename.length > 0;
     }
 }
 
 function clearGeneratedRecipe(): void {
+    if (loadedArtifactFilename) {
+        return;
+    }
     byId<HTMLInputElement>('arm-run').checked = false;
     resetGeneratedRecipe();
     updateRunControls();
@@ -240,8 +255,172 @@ function resetGeneratedRecipe(): void {
     byId<HTMLButtonElement>('save').disabled = true;
 }
 
+function applyGeneratedPreview(preview: IPreviewResult, message?: string): void {
+    currentPreview = preview;
+    prepareWrappedPreviewSegments(preview);
+    resetLayerVisibility(preview);
+    renderPreview(preview);
+    byId<HTMLButtonElement>('save').disabled = false;
+    selectedRunSource = 'generated';
+    byId<HTMLSelectElement>('run-source').value = selectedRunSource;
+    updateRunControls();
+    if (message) {
+        setRecipeMessage(message);
+    }
+}
+
+async function loadArtifactFile(): Promise<void> {
+    const input = byId<HTMLInputElement>('artifact-file');
+    const file = input.files?.[0];
+    if (!file) {
+        updateArtifactStatus('No artifact loaded');
+        return;
+    }
+
+    updateArtifactStatus(`Validating ${file.name} and generating preview…`);
+    artifactUploadInProgress = true;
+    input.disabled = true;
+    byId<HTMLButtonElement>('generate').disabled = true;
+    byId<HTMLInputElement>('arm-run').checked = false;
+    resetGeneratedRecipe();
+    setArtifactPaths(null);
+    setRecipeMessage('');
+    updateRunControls();
+
+    try {
+        await showGenerationPopup('Validating artifact and generating preview…');
+        let artifact: unknown;
+        try {
+            artifact = JSON.parse(await file.text()) as unknown;
+        } catch {
+            throw new Error('Artifact file is not valid JSON.');
+        }
+
+        const preview = await cyclone.generateArtifactPreview({windParameters: artifact});
+        loadedArtifactFilename = file.name;
+        clearTubeOptionValuesForArtifact();
+        setArtifactLockState(true);
+        setArtifactPaths(null);
+        applyGeneratedPreview(preview);
+        updateArtifactStatus(`${file.name} loaded · ${preview.recipe.summary.requestedLayerCount} planned layers`);
+    } catch (error) {
+        loadedArtifactFilename = '';
+        restoreTubeOptionValues();
+        input.value = '';
+        setArtifactLockState(false);
+        const message = getErrorMessage(error);
+        updateArtifactStatus(message, true);
+        hideGenerationPopup();
+        showArtifactError(message);
+        console.error(error);
+    } finally {
+        hideGenerationPopup();
+        artifactUploadInProgress = false;
+        updateRunControls();
+    }
+}
+
+function discardArtifact(): void {
+    const filename = loadedArtifactFilename;
+    loadedArtifactFilename = '';
+    byId<HTMLInputElement>('artifact-file').value = '';
+    byId<HTMLInputElement>('arm-run').checked = false;
+    restoreTubeOptionValues();
+    setArtifactLockState(false);
+    resetGeneratedRecipe();
+    setArtifactPaths(null);
+    updateRunControls();
+    updateArtifactStatus('No artifact loaded');
+    setRecipeMessage(filename ? `Artifact ${filename} discarded. Tube options unlocked.` : 'Tube options unlocked.');
+}
+
+function setArtifactLockState(locked: boolean): void {
+    byId<HTMLFieldSetElement>('tube-options').disabled = locked;
+    byId<HTMLInputElement>('artifact-file').disabled = locked;
+    byId<HTMLButtonElement>('discard-artifact').hidden = !locked;
+    byId<HTMLDivElement>('artifact-upload-card').classList.toggle('loaded', locked);
+    byId<HTMLButtonElement>('generate').disabled = locked;
+    updateRunControls();
+}
+
+function updateArtifactStatus(message: string, isError = false): void {
+    const status = byId<HTMLParagraphElement>('artifact-upload-status');
+    status.textContent = message;
+    status.classList.toggle('error', isError);
+}
+
+function showArtifactError(message: string): void {
+    byId<HTMLParagraphElement>('artifact-error-message').textContent = message;
+    const dialog = byId<ICycloneDialogElement>('artifact-error-dialog');
+    if (!dialog.open) {
+        dialog.showModal();
+    }
+}
+
+function clearTubeOptionValuesForArtifact(): void {
+    const controls = getTubeOptionControls();
+    tubeOptionControlSnapshot = controls.map((control) => ({
+        id: control.id,
+        value: control.value,
+        checked: control instanceof HTMLInputElement
+            && (control.type === 'checkbox' || control.type === 'radio')
+            ? control.checked
+            : undefined
+    }));
+
+    controls.forEach((control) => {
+        if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
+            control.checked = false;
+            control.value = '';
+        } else if (control instanceof HTMLSelectElement) {
+            control.selectedIndex = -1;
+        } else {
+            control.value = '';
+        }
+    });
+    byId<HTMLElement>('custom-layer-summary').textContent = '';
+    byId<HTMLParagraphElement>('custom-terminal-summary').textContent = '';
+}
+
+function restoreTubeOptionValues(): void {
+    if (!tubeOptionControlSnapshot) {
+        return;
+    }
+
+    for (const state of tubeOptionControlSnapshot) {
+        const control = byId<HTMLInputElement | HTMLSelectElement>(state.id);
+        control.value = state.value;
+        if (control instanceof HTMLInputElement && typeof state.checked === 'boolean') {
+            control.checked = state.checked;
+        }
+    }
+    tubeOptionControlSnapshot = null;
+    updateCustomLayerSummary();
+}
+
+function getTubeOptionControls(): Array<HTMLInputElement | HTMLSelectElement> {
+    return Array.from(
+        byId<HTMLFieldSetElement>('tube-options')
+            .querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')
+    );
+}
+
+async function showGenerationPopup(message: string): Promise<void> {
+    byId<HTMLElement>('generation-message').textContent = message;
+    byId<HTMLDivElement>('generation-overlay').hidden = false;
+    document.body.setAttribute('aria-busy', 'true');
+    await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+    });
+}
+
+function hideGenerationPopup(): void {
+    byId<HTMLDivElement>('generation-overlay').hidden = true;
+    document.body.removeAttribute('aria-busy');
+}
+
 async function saveArtifacts(): Promise<void> {
-    if (!currentPreview) {
+    if (!currentPreview || loadedArtifactFilename) {
         return;
     }
 
@@ -454,10 +633,11 @@ function renderPreview(preview: IPreviewResult | null): void {
     fitPreview();
     renderLayerTable(preview);
 
-    const modeLabels: Record<TLayerMode, string> = {
+    const modeLabels: Record<TRecipeSummaryMode, string> = {
         count: 'Layer count',
         thickness: 'Total thickness',
-        custom: 'Custom layers'
+        custom: 'Custom layers',
+        artifact: 'Uploaded artifact'
     };
     addMetric(summary, 'Mode', modeLabels[preview.recipe.summary.layerMode]);
     addMetric(summary, 'Layers', preview.recipe.summary.requestedLayerCount.toString());
@@ -467,6 +647,9 @@ function renderPreview(preview: IPreviewResult | null): void {
     addMetric(summary, 'Achieved thickness', `${formatMM(preview.recipe.summary.achievedThickness)} mm`);
     addMetric(summary, 'Helical', preview.recipe.summary.helicalLayerCount.toString());
     addMetric(summary, 'Hoop', preview.recipe.summary.hoopLayerCount.toString());
+    if (preview.recipe.summary.skipLayerCount) {
+        addMetric(summary, 'Skip', preview.recipe.summary.skipLayerCount.toString());
+    }
     if (typeof preview.recipe.summary.patternNumber === 'number') {
         addMetric(summary, 'Pattern', preview.recipe.summary.patternNumber.toString());
     }
@@ -616,7 +799,7 @@ function syncTargetThicknessConstraints(): void {
 function bindRecipeInvalidationEvents(): void {
     const recipeForm = byId<HTMLDivElement>('tube-recipe-form');
     recipeForm.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((input) => {
-        if (input.id !== 'recipe-method') {
+        if (input.id !== 'recipe-method' && input.id !== 'artifact-file') {
             input.addEventListener('input', invalidateGeneratedRecipe);
         }
     });
@@ -1663,7 +1846,10 @@ function updateRunControls(): void {
 
     byId<HTMLButtonElement>('connect').disabled = connected;
     byId<HTMLButtonElement>('disconnect').disabled = !connected;
-    byId<HTMLButtonElement>('clear-recipe').disabled = currentPreview === null || canStopRun;
+    byId<HTMLButtonElement>('clear-recipe').disabled = currentPreview === null || canStopRun || loadedArtifactFilename.length > 0;
+    byId<HTMLButtonElement>('save').disabled = currentPreview === null || loadedArtifactFilename.length > 0;
+    byId<HTMLInputElement>('artifact-file').disabled = artifactUploadInProgress || loadedArtifactFilename.length > 0 || canStopRun;
+    byId<HTMLButtonElement>('discard-artifact').disabled = canStopRun;
     byId<HTMLSelectElement>('run-source').disabled = canStopRun;
     byId<HTMLInputElement>('uploaded-gcode-file').disabled = canStopRun;
     byId<HTMLInputElement>('arm-run').disabled = !hasRunnableGCode || canStopRun;
@@ -1869,7 +2055,7 @@ function formatMM(value: number): string {
 
 function getErrorMessage(error: unknown): string {
     if (error instanceof Error) {
-        return error.message;
+        return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
     }
     return String(error);
 }
@@ -1931,6 +2117,7 @@ function createWebCycloneApi(): ICycloneApi {
 
     return {
         generatePreview: (request) => postJson('/api/recipe/preview', request),
+        generateArtifactPreview: (request) => postJson('/api/artifact/preview', request),
         chooseBasePath: async () => window.prompt('Enter output base path on server (example: /home/pi/jobs/tube1)') ?? null,
         saveArtifacts: (request) => postJson('/api/recipe/artifacts', request),
         listSerialPorts: () => getJson('/api/serial/ports'),
