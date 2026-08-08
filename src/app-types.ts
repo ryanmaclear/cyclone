@@ -33,6 +33,7 @@ export interface ISerialPortOption {
     path: string;
     manufacturer?: string;
     serialNumber?: string;
+    emulator?: boolean;
 }
 
 export interface ISerialConnectRequest {
@@ -58,9 +59,11 @@ export interface ICycloneApi {
     chooseBasePath(): Promise<string | null>;
     saveArtifacts(request: ISaveArtifactsRequest): Promise<ISaveArtifactsResult>;
     listSerialPorts(): Promise<ISerialPortOption[]>;
+    setSerialEmulatorEnabled(enabled: boolean): Promise<boolean>;
     connectSerial(request: ISerialConnectRequest): Promise<IMarlinStatus>;
     disconnectSerial(): Promise<IMarlinStatus>;
     runGCode(commands: string[]): Promise<IMarlinStatus>;
+    sendManualGCode(command: string): Promise<IMarlinStatus>;
     pauseMachine(): Promise<IMarlinStatus>;
     resumeMachine(): Promise<IMarlinStatus>;
     clearMachineQueue(): Promise<IMarlinStatus>;

@@ -3,7 +3,8 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { Readable } from 'stream';
 import { SerialPort } from 'serialport';
-import { MarlinPort } from './marlin-port';
+import { IMarlinConnection } from './marlin-port';
+import { createMarlinConnection, getSerialEmulatorPortOption } from './serial-connection';
 import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
@@ -22,7 +23,8 @@ app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu');
 
 let mainWindow: BrowserWindow | null = null;
-let marlin: MarlinPort | null = null;
+let marlin: IMarlinConnection | null = null;
+let serialEmulatorEnabled = false;
 
 const disconnectedStatus: IMarlinStatus = {
   connected: false,
@@ -124,11 +126,20 @@ ipcMain.handle('recipe:save-artifacts', async (_event, request: ISaveArtifactsRe
 
 ipcMain.handle('serial:list-ports', async (): Promise<ISerialPortOption[]> => {
   const ports = await SerialPort.list();
-  return ports.map((port) => ({
+  const options = ports.map((port) => ({
     path: port.path,
     manufacturer: port.manufacturer,
     serialNumber: port.serialNumber
   }));
+  return serialEmulatorEnabled ? [...options, getSerialEmulatorPortOption()] : options;
+});
+
+ipcMain.handle('serial:set-emulator-enabled', async (_event, enabled: boolean) => {
+  if (marlin && marlin.getStatus().connected) {
+    throw new Error('Disconnect from the serial port before changing the emulator.');
+  }
+  serialEmulatorEnabled = enabled === true;
+  return serialEmulatorEnabled;
 });
 
 ipcMain.handle('serial:connect', async (_event, request: ISerialConnectRequest) => {
@@ -136,7 +147,7 @@ ipcMain.handle('serial:connect', async (_event, request: ISerialConnectRequest) 
     await marlin.disconnect();
   }
 
-  marlin = new MarlinPort(request.path, false, request.baudRate, {
+  marlin = createMarlinConnection(request.path, request.baudRate, serialEmulatorEnabled, {
     onStatus: sendSerialStatus,
     onLog: sendSerialLog
   });
@@ -160,6 +171,18 @@ ipcMain.handle('serial:run-gcode', async (_event, commands: string[]) => {
     throw new Error('Connect to a serial port before running G-code.');
   }
   marlin.queueCommands(commands);
+  return marlin.getStatus();
+});
+
+ipcMain.handle('serial:send-manual-gcode', async (_event, command: string) => {
+  if (!marlin || !marlin.getStatus().connected) {
+    throw new Error('Connect to a serial port before sending G-code.');
+  }
+  const normalizedCommand = typeof command === 'string' ? command.trim() : '';
+  if (!normalizedCommand) {
+    throw new Error('Enter a G-code command to send.');
+  }
+  marlin.queueCommand(normalizedCommand);
   return marlin.getStatus();
 });
 

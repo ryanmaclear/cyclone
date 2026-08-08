@@ -93,6 +93,7 @@ let currentStatus: IMarlinStatus = {
     sentCommands: 0,
     portPath: null
 };
+let serialEmulatorEnabled = false;
 let selectedRunSource: TRunSource = 'generated';
 let uploadedGCodeCommands: string[] = [];
 let uploadedGCodeFilename = '';
@@ -137,10 +138,13 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('close-artifact-error').addEventListener('click', () => {
         byId<ICycloneDialogElement>('artifact-error-dialog').close();
     });
-    byId<HTMLButtonElement>('refresh-ports').addEventListener('click', refreshPorts);
+    byId<HTMLButtonElement>('refresh-ports').addEventListener('click', () => refreshPorts());
+    byId<HTMLButtonElement>('toggle-serial-emulator').addEventListener('click', toggleSerialEmulator);
     byId<HTMLButtonElement>('connect').addEventListener('click', connectSerial);
     byId<HTMLButtonElement>('disconnect').addEventListener('click', disconnectSerial);
     byId<HTMLButtonElement>('run').addEventListener('click', runGCode);
+    byId<HTMLFormElement>('manual-gcode-form').addEventListener('submit', sendManualGCode);
+    byId<HTMLInputElement>('manual-gcode').addEventListener('input', updateManualGCodeControls);
     byId<HTMLButtonElement>('pause').addEventListener('click', pauseMachine);
     byId<HTMLButtonElement>('resume').addEventListener('click', resumeMachine);
     byId<HTMLButtonElement>('clear-queue').addEventListener('click', clearQueue);
@@ -443,12 +447,14 @@ async function saveArtifacts(): Promise<void> {
     }
 }
 
-async function refreshPorts(): Promise<void> {
+async function refreshPorts(preferEmulator = false): Promise<void> {
     const select = byId<HTMLSelectElement>('serial-port');
     select.innerHTML = '';
 
     try {
         const ports = await cyclone.listSerialPorts();
+        serialEmulatorEnabled = ports.some((port) => port.emulator === true);
+        updateSerialEmulatorControl();
         if (ports.length === 0) {
             const option = document.createElement('option');
             option.value = '';
@@ -460,6 +466,38 @@ async function refreshPorts(): Promise<void> {
         for (const port of ports) {
             select.appendChild(createPortOption(port));
         }
+        if (preferEmulator) {
+            const emulator = ports.find((port) => port.emulator === true);
+            if (emulator) {
+                select.value = emulator.path;
+            }
+        }
+    } catch (error) {
+        setMachineMessage(getErrorMessage(error));
+    }
+}
+
+async function toggleSerialEmulator(): Promise<void> {
+    if (currentStatus.connected) {
+        setMachineMessage('Disconnect from the serial port before changing the emulator.');
+        return;
+    }
+
+    const enable = !serialEmulatorEnabled;
+    const confirmation = enable
+        ? 'Enable the Marlin serial emulator? It simulates controller responses and does not control hardware.'
+        : 'Disable the Marlin serial emulator?';
+    if (!window.confirm(confirmation)) {
+        return;
+    }
+
+    try {
+        serialEmulatorEnabled = await cyclone.setSerialEmulatorEnabled(enable);
+        await refreshPorts(serialEmulatorEnabled);
+        updateRunControls();
+        setMachineMessage(serialEmulatorEnabled
+            ? 'Serial emulator enabled. Select it and click Connect.'
+            : 'Serial emulator disabled.');
     } catch (error) {
         setMachineMessage(getErrorMessage(error));
     }
@@ -508,6 +546,31 @@ async function runGCode(): Promise<void> {
         renderMachineStatus();
         updateRunControls();
         setMachineMessage(`${selectedRunSource === 'uploaded' ? 'Uploaded' : 'Generated'} G-code queued.`);
+    } catch (error) {
+        setMachineMessage(getErrorMessage(error));
+    }
+}
+
+async function sendManualGCode(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    if (!currentStatus.connected) {
+        setMachineMessage('Connect to a serial port before sending G-code.');
+        updateManualGCodeControls();
+        return;
+    }
+
+    const input = byId<HTMLInputElement>('manual-gcode');
+    const command = input.value.trim();
+    if (!command) {
+        return;
+    }
+
+    try {
+        currentStatus = await cyclone.sendManualGCode(command);
+        input.value = '';
+        renderMachineStatus();
+        updateRunControls();
+        setMachineMessage(`Manual G-code queued: ${command}`);
     } catch (error) {
         setMachineMessage(getErrorMessage(error));
     }
@@ -1817,13 +1880,17 @@ function formatSegmentTooltip(segment: IPreviewSegment): string {
 
 function renderMachineStatus(): void {
     const status = byId<HTMLSpanElement>('machine-status');
+    const emulatorConnected = currentStatus.connected && currentStatus.portPath === 'Marlin Serial Emulator';
+    status.classList.toggle('emulator-enabled', serialEmulatorEnabled);
     if (!currentStatus.connected) {
-        status.textContent = 'Disconnected';
+        status.textContent = serialEmulatorEnabled ? 'Emulator enabled — disconnected' : 'Disconnected';
         return;
     }
 
     const progress = currentStatus.totalCommands === 0 ? '0/0' : `${currentStatus.sentCommands}/${currentStatus.totalCommands}`;
-    status.textContent = `${currentStatus.portPath || 'Connected'} ${progress}`;
+    status.textContent = emulatorConnected
+        ? `Emulator connected ${progress}`
+        : `${currentStatus.portPath || 'Connected'} ${progress}`;
 }
 
 function renderUploadedGCodeStatus(): void {
@@ -1857,6 +1924,38 @@ function updateRunControls(): void {
     byId<HTMLButtonElement>('pause').disabled = !connected || !runInProgress || currentStatus.paused || currentStatus.pausing || currentStatus.resuming || currentStatus.stopping;
     byId<HTMLButtonElement>('resume').disabled = !connected || !currentStatus.paused || currentStatus.resuming || currentStatus.stopping;
     byId<HTMLButtonElement>('clear-queue').disabled = !connected || !canStopRun;
+    updateManualGCodeControls();
+    updateSerialEmulatorControl();
+}
+
+function updateManualGCodeControls(): void {
+    const input = byId<HTMLInputElement>('manual-gcode');
+    input.disabled = !currentStatus.connected;
+    byId<HTMLButtonElement>('send-manual-gcode').disabled = !currentStatus.connected || input.value.trim().length === 0;
+}
+
+function updateSerialEmulatorControl(): void {
+    const button = byId<HTMLButtonElement>('toggle-serial-emulator');
+    const machineSection = byId<HTMLElement>('machine-section');
+    const banner = byId<HTMLDivElement>('serial-emulator-banner');
+    const emulatorConnected = currentStatus.connected && currentStatus.portPath === 'Marlin Serial Emulator';
+    button.textContent = serialEmulatorEnabled ? 'Disable Emulator' : 'Enable Emulator';
+    button.disabled = currentStatus.connected;
+    button.hidden = currentStatus.connected;
+    byId<HTMLButtonElement>('refresh-ports').disabled = serialEmulatorEnabled;
+    machineSection.classList.toggle('emulator-enabled', serialEmulatorEnabled);
+    banner.hidden = !serialEmulatorEnabled;
+    if (serialEmulatorEnabled) {
+        byId<HTMLElement>('serial-emulator-banner-title').textContent = emulatorConnected
+            ? 'SIMULATION MODE CONNECTED'
+            : 'SERIAL EMULATOR ENABLED';
+        byId<HTMLElement>('serial-emulator-banner-message').textContent = emulatorConnected
+            ? 'Commands are being sent to the emulator, not physical hardware.'
+            : currentStatus.connected
+                ? 'A physical serial port is connected; commands are being sent to hardware.'
+                : 'Select and connect the Marlin Serial Emulator to test without hardware.';
+    }
+    renderMachineStatus();
 }
 
 function getSelectedRunCommands(): string[] | null {
@@ -1889,7 +1988,9 @@ function addMetric(container: HTMLElement, label: string, value: string): void {
 function createPortOption(port: ISerialPortOption): HTMLOptionElement {
     const option = document.createElement('option');
     option.value = port.path;
-    option.textContent = port.manufacturer ? `${port.path} - ${port.manufacturer}` : port.path;
+    option.textContent = port.emulator
+        ? 'Marlin Serial Emulator'
+        : port.manufacturer ? `${port.path} - ${port.manufacturer}` : port.path;
     return option;
 }
 
@@ -2121,9 +2222,11 @@ function createWebCycloneApi(): ICycloneApi {
         chooseBasePath: async () => window.prompt('Enter output base path on server (example: /home/pi/jobs/tube1)') ?? null,
         saveArtifacts: (request) => postJson('/api/recipe/artifacts', request),
         listSerialPorts: () => getJson('/api/serial/ports'),
+        setSerialEmulatorEnabled: (enabled) => postJson('/api/serial/emulator', { enabled }),
         connectSerial: (request) => postJson('/api/serial/connect', request),
         disconnectSerial: () => postJson('/api/serial/disconnect', {}),
         runGCode: (commands) => postJson('/api/serial/run', { commands }),
+        sendManualGCode: (command) => postJson('/api/serial/manual', { command }),
         pauseMachine: () => postJson('/api/serial/pause', {}),
         resumeMachine: () => postJson('/api/serial/resume', {}),
         clearMachineQueue: () => postJson('/api/serial/clear', {}),

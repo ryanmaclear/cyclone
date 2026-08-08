@@ -7,7 +7,18 @@ export interface IMarlinPortEvents {
     onLog?: (message: string) => void;
 }
 
-export class MarlinPort {
+export interface IMarlinConnection {
+    initialize(): Promise<void>;
+    disconnect(): Promise<void>;
+    queueCommand(line: string): void;
+    queueCommands(lines: string[]): void;
+    clearQueue(): void;
+    pause(): void;
+    resume(): void;
+    getStatus(): IMarlinStatus;
+}
+
+export class MarlinPort implements IMarlinConnection {
     
     private isInitialized = false;
     private port: SerialPort;

@@ -6,7 +6,8 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { Readable } from 'stream';
 import { SerialPort } from 'serialport';
-import { MarlinPort } from './marlin-port';
+import { IMarlinConnection } from './marlin-port';
+import { createMarlinConnection, getSerialEmulatorPortOption } from './serial-connection';
 import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
@@ -40,7 +41,8 @@ const wsServer = new WebSocketServer({ server, path: '/api/events' });
 app.use(express.json({ limit: '2mb' }));
 app.use('/', express.static(config.staticRoot));
 
-let marlin: MarlinPort | null = null;
+let marlin: IMarlinConnection | null = null;
+let serialEmulatorEnabled = false;
 const sockets = new Set<WebSocket>();
 type TEmptyParams = Record<string, never>;
 
@@ -111,11 +113,24 @@ app.post('/api/recipe/artifacts', async (request: Request<TEmptyParams, unknown,
 app.get('/api/serial/ports', async (_request: Request, response: Response) => {
     try {
         const ports = await SerialPort.list();
-        response.json(ports.map((port) => ({
+        const options = ports.map((port) => ({
             path: port.path,
             manufacturer: port.manufacturer,
             serialNumber: port.serialNumber
-        })));
+        }));
+        response.json(serialEmulatorEnabled ? [...options, getSerialEmulatorPortOption()] : options);
+    } catch (error) {
+        response.status(400).json({ error: getErrorMessage(error) });
+    }
+});
+
+app.post('/api/serial/emulator', (request: Request<TEmptyParams, unknown, { enabled: boolean }>, response: Response) => {
+    try {
+        if (marlin && marlin.getStatus().connected) {
+            throw new Error('Disconnect from the serial port before changing the emulator.');
+        }
+        serialEmulatorEnabled = request.body.enabled === true;
+        response.json(serialEmulatorEnabled);
     } catch (error) {
         response.status(400).json({ error: getErrorMessage(error) });
     }
@@ -126,7 +141,7 @@ app.post('/api/serial/connect', async (request: Request<TEmptyParams, unknown, I
         if (marlin) {
             await marlin.disconnect();
         }
-        marlin = new MarlinPort(request.body.path, false, request.body.baudRate, {
+        marlin = createMarlinConnection(request.body.path, request.body.baudRate, serialEmulatorEnabled, {
             onStatus: sendSerialStatus,
             onLog: sendSerialLog
         });
@@ -158,6 +173,22 @@ app.post('/api/serial/run', async (request: Request<TEmptyParams, unknown, { com
             throw new Error('Connect to a serial port before running G-code.');
         }
         marlin.queueCommands(request.body.commands);
+        response.json(marlin.getStatus());
+    } catch (error) {
+        response.status(400).json({ error: getErrorMessage(error) });
+    }
+});
+
+app.post('/api/serial/manual', (request: Request<TEmptyParams, unknown, { command: string }>, response: Response) => {
+    try {
+        if (!marlin || !marlin.getStatus().connected) {
+            throw new Error('Connect to a serial port before sending G-code.');
+        }
+        const command = typeof request.body.command === 'string' ? request.body.command.trim() : '';
+        if (!command) {
+            throw new Error('Enter a G-code command to send.');
+        }
+        marlin.queueCommand(command);
         response.json(marlin.getStatus());
     } catch (error) {
         response.status(400).json({ error: getErrorMessage(error) });

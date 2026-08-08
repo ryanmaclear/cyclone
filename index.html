@@ -49,6 +49,10 @@
         padding: 5px 8px;
       }
 
+      header .status-pill.emulator-enabled {
+        background: #a86600;
+      }
+
       main {
         display: grid;
         gap: 18px;
@@ -71,6 +75,39 @@
 
       .panel-body {
         padding: 14px;
+      }
+
+      .machine-section.emulator-enabled {
+        background: #fffaf0;
+        border-color: #d18a00;
+        box-shadow: 0 0 0 1px #d18a00;
+      }
+
+      .machine-section.emulator-enabled > h2 {
+        background: #ffedbd;
+        border-bottom-color: #d9a33a;
+        color: #6d4300;
+      }
+
+      .simulation-banner {
+        background: #fff0bf;
+        border: 1px solid #d18a00;
+        border-radius: 4px;
+        color: #5f3b00;
+        display: grid;
+        font-size: 12px;
+        gap: 3px;
+        margin-bottom: 14px;
+        padding: 10px 12px;
+      }
+
+      .simulation-banner strong {
+        font-size: 13px;
+        letter-spacing: 0.02em;
+      }
+
+      .simulation-banner[hidden] {
+        display: none;
       }
 
       .field-grid {
@@ -418,6 +455,10 @@
         background: #8a5b28;
       }
 
+      button.danger {
+        background: #a83232;
+      }
+
       button:disabled {
         background: #aeb8b1;
         cursor: not-allowed;
@@ -428,6 +469,11 @@
         flex-wrap: wrap;
         gap: 8px;
         margin-top: 14px;
+      }
+
+      .serial-connection-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       .preview-grid {
@@ -592,6 +638,10 @@
         .button-row {
           display: grid;
           grid-template-columns: minmax(0, 1fr);
+        }
+
+        .button-row.serial-connection-actions {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
         button,
@@ -788,6 +838,14 @@
         font-size: 13px;
         min-height: 18px;
         padding-top: 10px;
+      }
+
+      .manual-gcode-form {
+        align-items: end;
+        display: grid;
+        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        margin-top: 10px;
       }
 
       table {
@@ -993,9 +1051,13 @@
           </div>
         </section>
 
-        <section style="margin-top: 18px;">
+        <section id="machine-section" class="machine-section" style="margin-top: 18px;">
           <h2>Machine</h2>
           <div class="panel-body">
+            <div id="serial-emulator-banner" class="simulation-banner" role="status" hidden>
+              <strong id="serial-emulator-banner-title">SERIAL EMULATOR ENABLED</strong>
+              <span id="serial-emulator-banner-message">Select and connect the Marlin Serial Emulator to test without hardware.</span>
+            </div>
             <div class="machine-grid">
               <label>
                 Serial port
@@ -1006,10 +1068,13 @@
                 <input id="baud-rate" type="number" min="1" step="1" value="250000" />
               </label>
             </div>
-            <div class="button-row">
+            <div class="button-row serial-connection-actions">
               <button id="refresh-ports" class="secondary">Refresh</button>
               <button id="connect">Connect</button>
               <button id="disconnect" class="secondary" disabled>Disconnect</button>
+            </div>
+            <div class="button-row">
+              <button id="toggle-serial-emulator" class="danger" type="button">Enable Emulator</button>
             </div>
             <div class="run-source">
               <div class="run-source-grid">
@@ -1039,6 +1104,13 @@
             </div>
             <div id="machine-message" class="message">Physical controller reset remains the emergency stop.</div>
             <pre id="serial-log"></pre>
+            <form id="manual-gcode-form" class="manual-gcode-form">
+              <label>
+                Manual G-code
+                <input id="manual-gcode" type="text" placeholder="e.g. M114" autocomplete="off" disabled />
+              </label>
+              <button id="send-manual-gcode" type="submit" disabled>Send</button>
+            </form>
           </div>
         </section>
       </div>
