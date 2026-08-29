@@ -41,7 +41,9 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
         tow: windingParameters.towParameters
     }
     machine.insertComment(`Parameters ${JSON.stringify(headerParameters)}`);
-    machine.addRawGCode(deliveryHeadParameters.mode === 'fixed' ? `G0 X0 Y0 Z${stripPrecision(deliveryHeadParameters.positionDegrees)}` : 'G0 X0 Y0 Z0');
+    machine.addRawGCode('G28 X');
+    machine.addRawGCode(deliveryHeadParameters.mode === 'fixed' ? `G0 X10 Y0 Z${stripPrecision(deliveryHeadParameters.positionDegrees)}` : 'G0 X10 Y0 Z0');
+    machine.setPosition({[ECoordinateAxes.CARRIAGE]: 0});
     machine.setFeedRate(windingParameters.defaultFeedRate);
     if (windingParameters.disableSoftEndstops) {
         machine.addRawGCode('M211 S0');

@@ -56,11 +56,17 @@ There is currently no runtime validation of the `.wind` contents. A malformed fi
 
    The plotter expects this header on the first line.
 
-3. Adds an initial move:
+3. Homes only the carriage axis, moves 10 mm away from the X home position, and
+   defines that location as X zero:
 
    ```gcode
-   G0 X0 Y0 Z0
+   G28 X
+   G0 X10 Y0 Z0
+   G92 X0
    ```
+
+   Fixed delivery-head recipes use their configured Z position in the `G0`
+   command instead of `Z0`.
 
 4. Sets the feed rate:
 

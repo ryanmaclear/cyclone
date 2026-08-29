@@ -278,6 +278,7 @@ assert.ok(invalidTerminalFinalHoop.errors.some((error) => error.includes('Termin
 const plannedRecipe = planWindDetailed(mediumRecipe.windParameters, false, false);
 assert.ok(plannedRecipe.gcode.length > 0);
 assert.ok(plannedRecipe.totalTowUseM > 0);
+assert.deepStrictEqual(plannedRecipe.gcode.slice(1, 4), ['G28 X', 'G0 X10 Y0 Z0', 'G92 X0']);
 assert.ok(plotGCode(plannedRecipe.gcode));
 assert.deepStrictEqual(plannedRecipe.gcode, planWind(mediumRecipe.windParameters, false));
 assert.ok(plannedRecipe.gcode.filter((command) => /^G0\b.*\bZ/.test(command)).length > 1);
@@ -305,7 +306,8 @@ assert.ok(!terminalOnlyPlan.previewSegments.some((segment) => segment.groupKind 
 
 const fixedDeliveryHeadPlan = planWindDetailed(fixedDeliveryHeadRecipe.windParameters, false, false);
 const fixedDeliveryHeadZCommands = fixedDeliveryHeadPlan.gcode.filter((command) => /^G0\b.*\bZ/.test(command));
-assert.deepStrictEqual(fixedDeliveryHeadZCommands, ['G0 X0 Y0 Z12.5']);
+assert.deepStrictEqual(fixedDeliveryHeadZCommands, ['G0 X10 Y0 Z12.5']);
+assert.strictEqual(fixedDeliveryHeadPlan.gcode[3], 'G92 X0');
 assert.ok(!fixedDeliveryHeadPlan.gcode.some((command) => command === 'G0'));
 
 const disabledSoftEndstopsPlan = planWindDetailed(disabledSoftEndstopsRecipe.windParameters, false, false);
