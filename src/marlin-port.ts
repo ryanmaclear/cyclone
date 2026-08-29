@@ -21,6 +21,7 @@ export interface IMarlinConnection {
 export class MarlinPort implements IMarlinConnection {
     
     private isInitialized = false;
+    private disconnecting = false;
     private port: SerialPort;
     private parser: ReadlineParser;
 
@@ -50,6 +51,8 @@ export class MarlinPort implements IMarlinConnection {
           baudRate: this.baudRate,
           autoOpen: false
         });
+        this.port.on('close', (error: Error | null) => this.handlePortClose(error));
+        this.port.on('error', (error: Error) => this.log(`Serial port error: ${error.message}`));
 
         // TODO: .off this in reset
         this.parser = this.port.pipe(new ReadlineParser({ delimiter: '\n' }))
@@ -100,15 +103,28 @@ export class MarlinPort implements IMarlinConnection {
             return void 0;
         }
 
-        await new Promise<void>((resolve, reject) => {
-            this.port.close((error) => {
-                if (isObject(error)) {
-                    reject(`Error closing port: ${error.message}`);
-                    return;
-                }
-                resolve();
+        this.disconnecting = true;
+        try {
+            await new Promise<void>((resolve, reject) => {
+                this.port.close((error) => {
+                    if (isObject(error)) {
+                        reject(`Error closing port: ${error.message}`);
+                        return;
+                    }
+                    resolve();
+                });
             });
-        });
+        } finally {
+            this.disconnecting = false;
+        }
+        this.reset();
+    }
+
+    private handlePortClose(error: Error | null): void {
+        if (this.disconnecting || !this.isInitialized) {
+            return;
+        }
+        this.log(error ? `Serial port disconnected: ${error.message}` : 'Serial port disconnected.');
         this.reset();
     }
 
@@ -273,7 +289,7 @@ export class MarlinPort implements IMarlinConnection {
             return void 0;
         }
 
-        this.log(`Got back unexpected response '${line}'`);
+        this.log(line);
         return void 0;
     }
 

@@ -57,6 +57,13 @@ function sendSerialStatus(status: IMarlinStatus): void {
     broadcast('serial:status', status);
 }
 
+function handleSerialStatus(status: IMarlinStatus): void {
+    if (!status.connected) {
+        marlin = null;
+    }
+    sendSerialStatus(status);
+}
+
 function sendSerialLog(message: string): void {
     broadcast('serial:log', message);
 }
@@ -142,7 +149,7 @@ app.post('/api/serial/connect', async (request: Request<TEmptyParams, unknown, I
             await marlin.disconnect();
         }
         marlin = createMarlinConnection(request.body.path, request.body.baudRate, serialEmulatorEnabled, {
-            onStatus: sendSerialStatus,
+            onStatus: handleSerialStatus,
             onLog: sendSerialLog
         });
         await marlin.initialize();

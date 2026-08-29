@@ -148,7 +148,7 @@ ipcMain.handle('serial:connect', async (_event, request: ISerialConnectRequest) 
   }
 
   marlin = createMarlinConnection(request.path, request.baudRate, serialEmulatorEnabled, {
-    onStatus: sendSerialStatus,
+    onStatus: handleSerialStatus,
     onLog: sendSerialLog
   });
   await marlin.initialize();
@@ -230,6 +230,13 @@ function sendSerialStatus(status: IMarlinStatus): void {
   if (mainWindow) {
     mainWindow.webContents.send('serial:status', status);
   }
+}
+
+function handleSerialStatus(status: IMarlinStatus): void {
+  if (!status.connected) {
+    marlin = null;
+  }
+  sendSerialStatus(status);
 }
 
 function sendSerialLog(message: string): void {

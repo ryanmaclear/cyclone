@@ -117,9 +117,14 @@ window.addEventListener('DOMContentLoaded', () => {
         updateRunControls();
 
         cyclone.onSerialStatus((status) => {
+            const disconnected = currentStatus.connected && !status.connected;
             currentStatus = status;
             renderMachineStatus();
             updateRunControls();
+            if (disconnected) {
+                setMachineMessage('Serial port disconnected.');
+                refreshPorts();
+            }
         });
 
         cyclone.onSerialLog((message) => appendSerialLog(message));
@@ -2130,8 +2135,8 @@ async function writeTextToClipboard(text: string): Promise<void> {
 }
 
 function appendSerialLog(message: string): void {
-    const log = byId<HTMLPreElement>('serial-log');
-    log.textContent = `${log.textContent}${message}\n`;
+    const log = byId<HTMLTextAreaElement>('serial-log');
+    log.value = `${log.value}${message}\n`;
     log.scrollTop = log.scrollHeight;
 }
 
