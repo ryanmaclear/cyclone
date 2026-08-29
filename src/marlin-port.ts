@@ -289,7 +289,10 @@ export class MarlinPort implements IMarlinConnection {
             return void 0;
         }
 
-        this.log(line);
+        const response = line.startsWith('echo:') ? line.slice('echo:'.length).trimStart() : line;
+        if (response) {
+            this.log(response);
+        }
         return void 0;
     }
 

@@ -153,6 +153,7 @@ function bindEvents(): void {
     byId<HTMLButtonElement>('pause').addEventListener('click', pauseMachine);
     byId<HTMLButtonElement>('resume').addEventListener('click', resumeMachine);
     byId<HTMLButtonElement>('clear-queue').addEventListener('click', clearQueue);
+    byId<HTMLButtonElement>('clear-serial-log').addEventListener('click', clearSerialLog);
     byId<HTMLInputElement>('arm-run').addEventListener('change', updateRunControls);
     byId<HTMLSelectElement>('run-source').addEventListener('change', changeRunSource);
     byId<HTMLInputElement>('uploaded-gcode-file').addEventListener('change', loadUploadedGCode);
@@ -2138,6 +2139,10 @@ function appendSerialLog(message: string): void {
     const log = byId<HTMLTextAreaElement>('serial-log');
     log.value = `${log.value}${message}\n`;
     log.scrollTop = log.scrollHeight;
+}
+
+function clearSerialLog(): void {
+    byId<HTMLTextAreaElement>('serial-log').value = '';
 }
 
 function getPlotBase64(plotDataUrl: string | null): string | null {

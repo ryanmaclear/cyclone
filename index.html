@@ -851,6 +851,22 @@
         width: 100%;
       }
 
+      .serial-log-toolbar {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        margin-top: 12px;
+      }
+
+      .serial-log-toolbar span {
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .serial-log-toolbar + #serial-log {
+        margin-top: 6px;
+      }
+
       .message {
         color: #6f421c;
         font-size: 13px;
@@ -1121,6 +1137,10 @@
               <button id="clear-queue" class="secondary" disabled>Stop</button>
             </div>
             <div id="machine-message" class="message">Physical controller reset remains the emergency stop.</div>
+            <div class="serial-log-toolbar">
+              <span>Communications</span>
+              <button id="clear-serial-log" class="secondary" type="button">Clear</button>
+            </div>
             <textarea id="serial-log" aria-label="Serial communications log" readonly></textarea>
             <form id="manual-gcode-form" class="manual-gcode-form">
               <label>
