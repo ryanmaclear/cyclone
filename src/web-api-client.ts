@@ -1,6 +1,7 @@
 import type {
     IArtifactPreviewRequest,
     ICycloneApi,
+    ICuringRequest,
     IMarlinStatus,
     IPreviewRequest,
     IPreviewResult,
@@ -9,6 +10,7 @@ import type {
     ISerialConnectRequest,
     ISerialPortOption
 } from './app-types';
+import type { ICuringPlan } from './curing';
 
 type TEventHandler = (payload: unknown) => void;
 
@@ -47,6 +49,7 @@ export function createWebCycloneApi(): ICycloneApi {
 
     return {
         generatePreview: (request: IPreviewRequest) => postJson<IPreviewResult>('/api/recipe/preview', request),
+        generateCuring: (request: ICuringRequest) => postJson<ICuringPlan>('/api/curing/generate', request),
         generateArtifactPreview: (request: IArtifactPreviewRequest) => postJson<IPreviewResult>('/api/artifact/preview', request),
         chooseBasePath: async () => window.prompt('Enter output base path on server (example: /home/pi/jobs/tube1)') ?? null,
         saveArtifacts: (request: ISaveArtifactsRequest) => postJson<ISaveArtifactsResult>('/api/recipe/artifacts', request),

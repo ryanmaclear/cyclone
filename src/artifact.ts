@@ -11,6 +11,7 @@ import {
     MIN_WIND_ANGLE_DEGREES,
     TOW_COVERAGES_PER_RECIPE_LAYER
 } from './recipe';
+import { CURING_WARNINGS, ICuringParameters, parseCuringParameters, validateCuringParameters } from './curing';
 
 type TUnknownRecord = Record<string, unknown>;
 
@@ -38,7 +39,8 @@ export function createArtifactRecipe(value: unknown): IGeneratedRecipe {
             'Thickness assumes each there-and-back layer deposits two complete tow coverages.',
             ...(terminalLayerCount > 0 ? ['A final single-pass hoop contributes one tow coverage.'] : []),
             'Tow thickness is recorded but the current planner does not increase mandrel diameter between layers.',
-            'Hoop and helical locks create trim regions at the ends of the part.'
+            'Hoop and helical locks create trim regions at the ends of the part.',
+            ...(windParameters.curing ? CURING_WARNINGS : [])
         ]
     };
 }
@@ -55,6 +57,7 @@ export function validateWindArtifact(value: unknown): IWindParameters {
     const defaultFeedRate = readPositiveNumber(artifact.defaultFeedRate, 'Default feed rate', errors);
     const deliveryHead = readDeliveryHead(artifact.deliveryHead, errors);
     const disableSoftEndstops = readOptionalBoolean(artifact.disableSoftEndstops, 'Disable soft endstops', errors);
+    const curing = readCuringParameters(artifact.curing, errors);
     const layers = readLayers(artifact.layers, diameter, windLength, towWidth, errors);
 
     if (errors.length > 0) {
@@ -73,8 +76,21 @@ export function validateWindArtifact(value: unknown): IWindParameters {
         },
         defaultFeedRate,
         deliveryHead,
-        disableSoftEndstops
+        disableSoftEndstops,
+        ...(curing ? {curing} : {})
     };
+}
+
+function readCuringParameters(value: unknown, errors: string[]): ICuringParameters | undefined {
+    if (typeof value === 'undefined') {
+        return undefined;
+    }
+    const validation = validateCuringParameters(value);
+    if (!validation.valid) {
+        errors.push(...validation.errors);
+        return undefined;
+    }
+    return parseCuringParameters(value);
 }
 
 function readLayers(

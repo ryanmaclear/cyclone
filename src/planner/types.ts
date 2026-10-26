@@ -1,3 +1,5 @@
+import type { ICuringParameters } from '../curing';
+
 /**
  * General parameters
  */
@@ -67,6 +69,7 @@ export interface IWindParameters {
     defaultFeedRate: number;
     deliveryHead?: TDeliveryHeadParameters;
     disableSoftEndstops?: boolean;
+    curing?: ICuringParameters;
 }
 
 

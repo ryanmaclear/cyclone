@@ -2,6 +2,7 @@ import { createCanvas } from 'canvas';
 import { Readable } from 'stream';
 import { generateCoordinates } from './helpers';
 import { IMandrelParameters, ITowParameters } from '../planner/types';
+import { CURING_SECTION_START } from '../curing';
 
 interface IWindParameters {
     mandrel: IMandrelParameters;
@@ -30,6 +31,9 @@ export function plotGCode(gcode: string[]): Readable | void {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     for (const line of gcode) {
+        if (line === CURING_SECTION_START) {
+            break;
+        }
         const lineParts = line.split(' ');
         if (lineParts[0] === ';') {
             // Comment, nothing to do

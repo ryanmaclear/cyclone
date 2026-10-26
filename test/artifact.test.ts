@@ -47,6 +47,22 @@ const validArtifact: IWindParameters = {
 const validated = validateWindArtifact(validArtifact);
 assert.deepStrictEqual(validated, validArtifact);
 
+const curingArtifact: IWindParameters = {
+    ...validArtifact,
+    curing: {
+        rpm: 0.5,
+        durationMinutes: 90,
+        direction: 'negative'
+    }
+};
+assert.deepStrictEqual(validateWindArtifact(curingArtifact), curingArtifact);
+const curingRecipe = createArtifactRecipe(curingArtifact);
+assert.deepStrictEqual(curingRecipe.windParameters.curing, curingArtifact.curing);
+assert.ok(curingRecipe.warnings.some((warning) => warning.includes('nominal RPM')));
+const curingPlan = planWindDetailed(curingRecipe.windParameters, false, false);
+assert.ok(curingPlan.gcode.includes('; Curing cycle start'));
+assert.strictEqual(curingPlan.totalTimeS, planWindDetailed(validArtifact, false, false).totalTimeS + 90 * 60);
+
 const recipe = createArtifactRecipe(validArtifact);
 assert.strictEqual(recipe.summary.layerMode, 'artifact');
 assert.strictEqual(recipe.summary.requestedLayerCount, 4);
@@ -106,6 +122,14 @@ assertInvalid({
     ...validArtifact,
     disableSoftEndstops: 'yes'
 }, 'Disable soft endstops must be true or false');
+assertInvalid({
+    ...validArtifact,
+    curing: {
+        rpm: 0,
+        durationMinutes: 30,
+        direction: 'positive'
+    }
+}, 'Curing RPM must be greater than zero');
 
 function assertInvalid(value: unknown, expectedMessage: string): void {
     assert.throws(

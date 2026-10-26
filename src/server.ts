@@ -12,9 +12,11 @@ import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
 import { createArtifactRecipe } from './artifact';
+import { CURING_WARNINGS, generateCuringPlan, parseCuringParameters } from './curing';
 import { getServerConfig } from './server-config';
 import {
     IArtifactPreviewRequest,
+    ICuringRequest,
     IMarlinStatus,
     IPreviewRequest,
     ISaveArtifactsRequest,
@@ -75,10 +77,22 @@ app.get('/api/health', (_request: Request, response: Response) => {
 app.post('/api/recipe/preview', async (request: Request<TEmptyParams, unknown, IPreviewRequest>, response: Response) => {
     try {
         const recipe = generateTubeRecipe(request.body.recipeInput);
+        if (request.body.curingParameters) {
+            recipe.windParameters.curing = parseCuringParameters(request.body.curingParameters);
+            recipe.warnings.push(...CURING_WARNINGS);
+        }
         const plan = planWindDetailed(recipe.windParameters, false, false);
         const plotStream = plotGCode(plan.gcode);
         const plotDataUrl = plotStream ? `data:image/png;base64,${(await streamToBuffer(plotStream)).toString('base64')}` : null;
         response.json({ recipe, plan, plotDataUrl });
+    } catch (error) {
+        response.status(400).json({ error: getErrorMessage(error) });
+    }
+});
+
+app.post('/api/curing/generate', (request: Request<TEmptyParams, unknown, ICuringRequest>, response: Response) => {
+    try {
+        response.json(generateCuringPlan(request.body.curingParameters));
     } catch (error) {
         response.status(400).json({ error: getErrorMessage(error) });
     }

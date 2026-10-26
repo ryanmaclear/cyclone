@@ -10,9 +10,13 @@ type TLayerMode = import('./recipe').TLayerMode;
 type TRecipeSummaryMode = import('./recipe').TRecipeSummaryMode;
 type TStrengthPreset = import('./recipe').TStrengthPreset;
 type TCustomRecipeLayer = import('./recipe').TCustomRecipeLayer;
+type ICuringParameters = import('./curing').ICuringParameters;
+type ICuringPlan = import('./curing').ICuringPlan;
+type TCuringDirection = import('./curing').TCuringDirection;
 
 type TColorMode = 'layer' | 'circuit' | 'pass';
-type TRunSource = 'generated' | 'uploaded';
+type TRunSource = 'generated-winding' | 'generated-curing' | 'uploaded';
+type TWorkflowTab = 'recipe' | 'curing';
 
 const TOW_COVERAGES_PER_RECIPE_LAYER = 2;
 
@@ -56,12 +60,14 @@ interface ICycloneDialogElement extends HTMLDialogElement {
 }
 
 const DEFAULT_GCODE_FILENAME = 'tube.gcode';
+const DEFAULT_CURING_GCODE_FILENAME = 'curing.gcode';
 const GCODE_STACK_BREAKPOINT_PX = 1500;
 const DEFAULT_WIND_ANGLE_DEGREES = 55;
 const MIN_WIND_ANGLE_DEGREES = 10;
 const MAX_WIND_ANGLE_DEGREES = 80;
 
 let currentPreview: IPreviewResult | null = null;
+let currentCuringPlan: ICuringPlan | null = null;
 const cyclone = window.cyclone ?? createWebCycloneApi();
 const visibleLayerIndexes = new Set<number>();
 const expandedLayerIndexes = new Set<number>();
@@ -94,13 +100,15 @@ let currentStatus: IMarlinStatus = {
     portPath: null
 };
 let serialEmulatorEnabled = false;
-let selectedRunSource: TRunSource = 'generated';
+let selectedRunSource: TRunSource = 'generated-winding';
 let uploadedGCodeCommands: string[] = [];
 let uploadedGCodeFilename = '';
 let loadedArtifactFilename = '';
 let artifactUploadInProgress = false;
 let tubeOptionControlSnapshot: ITubeOptionControlState[] | null = null;
+let curingOptionControlSnapshot: ITubeOptionControlState[] | null = null;
 let gcodeFilename = DEFAULT_GCODE_FILENAME;
+let curingGCodeFilename = DEFAULT_CURING_GCODE_FILENAME;
 let wasGCodePaneStacked = false;
 let gcodeToastTimer: number | null = null;
 let selectedRecipeMethod: TLayerMode = 'count';
@@ -135,9 +143,13 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 function bindEvents(): void {
+    bindWorkflowTabs();
     byId<HTMLButtonElement>('generate').addEventListener('click', generatePreview);
     byId<HTMLButtonElement>('clear-recipe').addEventListener('click', clearGeneratedRecipe);
     byId<HTMLButtonElement>('save').addEventListener('click', saveArtifacts);
+    byId<HTMLButtonElement>('generate-curing').addEventListener('click', generateCuring);
+    byId<HTMLButtonElement>('download-curing-gcode').addEventListener('click', downloadCuringGCode);
+    byId<HTMLButtonElement>('copy-curing-gcode').addEventListener('click', copyCuringGCode);
     byId<HTMLInputElement>('artifact-file').addEventListener('change', loadArtifactFile);
     byId<HTMLButtonElement>('discard-artifact').addEventListener('click', discardArtifact);
     byId<HTMLButtonElement>('close-artifact-error').addEventListener('click', () => {
@@ -203,17 +215,73 @@ function bindEvents(): void {
         gcodeFilename = normalizeGCodeFilename(gcodeFilenameInput.value);
         gcodeFilenameInput.value = gcodeFilename;
     });
+    const curingGCodeFilenameInput = byId<HTMLInputElement>('curing-gcode-filename');
+    curingGCodeFilenameInput.value = curingGCodeFilename;
+    curingGCodeFilenameInput.addEventListener('input', () => {
+        curingGCodeFilename = curingGCodeFilenameInput.value;
+    });
+    curingGCodeFilenameInput.addEventListener('change', () => {
+        curingGCodeFilename = normalizeGCodeFilename(curingGCodeFilenameInput.value, DEFAULT_CURING_GCODE_FILENAME);
+        curingGCodeFilenameInput.value = curingGCodeFilename;
+    });
     bindCanvasEvents();
     bindRecipeInvalidationEvents();
+    bindCuringInvalidationEvents();
     updateLayerModeControls();
     updateDeliveryHeadControls();
     syncActiveLayerDimension(true);
     updateGCodePanel(null);
+    renderCuringPlan(null);
     syncResponsiveGCodePanel();
     window.addEventListener('resize', () => {
         syncResponsiveGCodePanel();
         requestPreviewDraw(true);
     });
+}
+
+function bindWorkflowTabs(): void {
+    const tabs: Array<{name: TWorkflowTab; button: HTMLButtonElement}> = [
+        {name: 'recipe', button: byId<HTMLButtonElement>('tube-recipe-tab')},
+        {name: 'curing', button: byId<HTMLButtonElement>('curing-tab')}
+    ];
+
+    tabs.forEach((tab, index) => {
+        tab.button.addEventListener('click', () => selectWorkflowTab(tab.name));
+        tab.button.addEventListener('keydown', (event: KeyboardEvent) => {
+            let targetIndex: number | null = null;
+            if (event.key === 'ArrowRight') {
+                targetIndex = (index + 1) % tabs.length;
+            } else if (event.key === 'ArrowLeft') {
+                targetIndex = (index - 1 + tabs.length) % tabs.length;
+            } else if (event.key === 'Home') {
+                targetIndex = 0;
+            } else if (event.key === 'End') {
+                targetIndex = tabs.length - 1;
+            }
+            if (targetIndex === null) {
+                return;
+            }
+            event.preventDefault();
+            selectWorkflowTab(tabs[targetIndex].name);
+            tabs[targetIndex].button.focus();
+        });
+    });
+
+    selectWorkflowTab('recipe');
+}
+
+function selectWorkflowTab(selectedTab: TWorkflowTab): void {
+    const recipeSelected = selectedTab === 'recipe';
+    updateWorkflowTab(byId<HTMLButtonElement>('tube-recipe-tab'), recipeSelected);
+    updateWorkflowTab(byId<HTMLButtonElement>('curing-tab'), !recipeSelected);
+    byId<HTMLElement>('tube-recipe-section').hidden = !recipeSelected;
+    byId<HTMLElement>('curing-section').hidden = recipeSelected;
+}
+
+function updateWorkflowTab(button: HTMLButtonElement, selected: boolean): void {
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-selected', selected.toString());
+    button.tabIndex = selected ? 0 : -1;
 }
 
 async function generatePreview(): Promise<void> {
@@ -226,7 +294,10 @@ async function generatePreview(): Promise<void> {
     syncActiveLayerDimension(true);
 
     try {
-        const request = {recipeInput: readRecipeInput()};
+        const request = {
+            recipeInput: readRecipeInput(),
+            curingParameters: byId<HTMLInputElement>('append-curing').checked ? readCuringParameters() : undefined
+        };
         await showGenerationPopup('Generating recipe preview…');
         const preview = await cyclone.generatePreview(request);
         applyGeneratedPreview(preview, 'Preview generated.');
@@ -239,6 +310,58 @@ async function generatePreview(): Promise<void> {
         hideGenerationPopup();
         byId<HTMLButtonElement>('generate').disabled = loadedArtifactFilename.length > 0;
     }
+}
+
+async function generateCuring(): Promise<void> {
+    byId<HTMLInputElement>('arm-run').checked = false;
+    resetGeneratedCuring();
+    updateRunControls();
+    setCuringMessage('Generating curing G-code...');
+    byId<HTMLButtonElement>('generate-curing').disabled = true;
+
+    try {
+        const plan = await cyclone.generateCuring({curingParameters: readCuringParameters()});
+        currentCuringPlan = plan;
+        renderCuringPlan(plan);
+        selectedRunSource = 'generated-curing';
+        byId<HTMLSelectElement>('run-source').value = selectedRunSource;
+        setCuringMessage('Curing G-code generated.');
+        updateRunControls();
+    } catch (error) {
+        resetGeneratedCuring();
+        setCuringMessage(getErrorMessage(error));
+        updateRunControls();
+    } finally {
+        byId<HTMLButtonElement>('generate-curing').disabled = loadedArtifactFilename.length > 0;
+    }
+}
+
+function resetGeneratedCuring(): void {
+    currentCuringPlan = null;
+    renderCuringPlan(null);
+}
+
+function renderCuringPlan(plan: ICuringPlan | null): void {
+    const preview = byId<HTMLPreElement>('curing-gcode-preview');
+    const summary = byId<HTMLDivElement>('curing-summary');
+    summary.innerHTML = '';
+
+    if (!plan) {
+        preview.textContent = 'No curing G-code generated';
+        preview.classList.add('empty');
+        byId<HTMLButtonElement>('download-curing-gcode').disabled = true;
+        byId<HTMLButtonElement>('copy-curing-gcode').disabled = true;
+        return;
+    }
+
+    preview.textContent = plan.gcode.join('\n');
+    preview.classList.remove('empty');
+    byId<HTMLButtonElement>('download-curing-gcode').disabled = false;
+    byId<HTMLButtonElement>('copy-curing-gcode').disabled = false;
+    addMetric(summary, 'Requested time', formatDurationMinutes(plan.totalTimeS / 60));
+    addMetric(summary, 'Rotations', formatNumber(plan.totalRotations));
+    addMetric(summary, 'Y feed', `${formatNumber(plan.feedRateDegreesPerMinute)} deg/min`);
+    addMetric(summary, '10 s chunks', plan.chunkCount.toString());
 }
 
 function clearGeneratedRecipe(): void {
@@ -271,7 +394,7 @@ function applyGeneratedPreview(preview: IPreviewResult, message?: string): void 
     resetLayerVisibility(preview);
     renderPreview(preview);
     byId<HTMLButtonElement>('save').disabled = false;
-    selectedRunSource = 'generated';
+    selectedRunSource = 'generated-winding';
     byId<HTMLSelectElement>('run-source').value = selectedRunSource;
     updateRunControls();
     if (message) {
@@ -293,6 +416,7 @@ async function loadArtifactFile(): Promise<void> {
     byId<HTMLButtonElement>('generate').disabled = true;
     byId<HTMLInputElement>('arm-run').checked = false;
     resetGeneratedRecipe();
+    resetGeneratedCuring();
     setArtifactPaths(null);
     setRecipeMessage('');
     updateRunControls();
@@ -309,6 +433,7 @@ async function loadArtifactFile(): Promise<void> {
         const preview = await cyclone.generateArtifactPreview({windParameters: artifact});
         loadedArtifactFilename = file.name;
         clearTubeOptionValuesForArtifact();
+        applyArtifactCuringParameters(preview.recipe.windParameters.curing);
         setArtifactLockState(true);
         setArtifactPaths(null);
         applyGeneratedPreview(preview);
@@ -316,6 +441,7 @@ async function loadArtifactFile(): Promise<void> {
     } catch (error) {
         loadedArtifactFilename = '';
         restoreTubeOptionValues();
+        restoreCuringOptionValues();
         input.value = '';
         setArtifactLockState(false);
         const message = getErrorMessage(error);
@@ -336,8 +462,10 @@ function discardArtifact(): void {
     byId<HTMLInputElement>('artifact-file').value = '';
     byId<HTMLInputElement>('arm-run').checked = false;
     restoreTubeOptionValues();
+    restoreCuringOptionValues();
     setArtifactLockState(false);
     resetGeneratedRecipe();
+    resetGeneratedCuring();
     setArtifactPaths(null);
     updateRunControls();
     updateArtifactStatus('No artifact loaded');
@@ -346,10 +474,12 @@ function discardArtifact(): void {
 
 function setArtifactLockState(locked: boolean): void {
     byId<HTMLFieldSetElement>('tube-options').disabled = locked;
+    byId<HTMLFieldSetElement>('curing-options').disabled = locked;
     byId<HTMLInputElement>('artifact-file').disabled = locked;
     byId<HTMLButtonElement>('discard-artifact').hidden = !locked;
     byId<HTMLDivElement>('artifact-upload-card').classList.toggle('loaded', locked);
     byId<HTMLButtonElement>('generate').disabled = locked;
+    byId<HTMLButtonElement>('generate-curing').disabled = locked;
     updateRunControls();
 }
 
@@ -413,6 +543,48 @@ function getTubeOptionControls(): Array<HTMLInputElement | HTMLSelectElement> {
         byId<HTMLFieldSetElement>('tube-options')
             .querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')
     );
+}
+
+function applyArtifactCuringParameters(parameters: ICuringParameters | undefined): void {
+    const controls = getCuringOptionControls();
+    curingOptionControlSnapshot = controls.map(getControlState);
+    byId<HTMLInputElement>('curing-rpm').value = parameters ? parameters.rpm.toString() : '';
+    byId<HTMLInputElement>('curing-hours').value = parameters ? Math.floor(parameters.durationMinutes / 60).toString() : '';
+    byId<HTMLInputElement>('curing-minutes').value = parameters ? (parameters.durationMinutes % 60).toString() : '';
+    byId<HTMLSelectElement>('curing-direction').value = parameters ? parameters.direction : 'positive';
+    byId<HTMLInputElement>('append-curing').checked = Boolean(parameters);
+}
+
+function restoreCuringOptionValues(): void {
+    if (!curingOptionControlSnapshot) {
+        return;
+    }
+    for (const state of curingOptionControlSnapshot) {
+        const control = byId<HTMLInputElement | HTMLSelectElement>(state.id);
+        control.value = state.value;
+        if (control instanceof HTMLInputElement && typeof state.checked === 'boolean') {
+            control.checked = state.checked;
+        }
+    }
+    curingOptionControlSnapshot = null;
+}
+
+function getCuringOptionControls(): Array<HTMLInputElement | HTMLSelectElement> {
+    return Array.from(
+        byId<HTMLFieldSetElement>('curing-options')
+            .querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')
+    );
+}
+
+function getControlState(control: HTMLInputElement | HTMLSelectElement): ITubeOptionControlState {
+    return {
+        id: control.id,
+        value: control.value,
+        checked: control instanceof HTMLInputElement
+            && (control.type === 'checkbox' || control.type === 'radio')
+            ? control.checked
+            : undefined
+    };
 }
 
 async function showGenerationPopup(message: string): Promise<void> {
@@ -551,7 +723,12 @@ async function runGCode(): Promise<void> {
         byId<HTMLInputElement>('arm-run').checked = false;
         renderMachineStatus();
         updateRunControls();
-        setMachineMessage(`${selectedRunSource === 'uploaded' ? 'Uploaded' : 'Generated'} G-code queued.`);
+        const sourceLabels: Record<TRunSource, string> = {
+            'generated-winding': 'Generated winding',
+            'generated-curing': 'Generated curing',
+            uploaded: 'Uploaded'
+        };
+        setMachineMessage(`${sourceLabels[selectedRunSource]} G-code queued.`);
     } catch (error) {
         setMachineMessage(getErrorMessage(error));
     }
@@ -679,6 +856,38 @@ function readRecipeInput(): ITubeRecipeInput {
     };
 }
 
+function readCuringParameters(): ICuringParameters {
+    const rpm = readNumber('curing-rpm');
+    const hours = readOptionalTimePart('curing-hours');
+    const minutes = readOptionalTimePart('curing-minutes');
+    if (!Number.isFinite(rpm) || rpm <= 0) {
+        throw new Error('Curing RPM must be greater than zero.');
+    }
+    if (!Number.isInteger(hours) || hours < 0) {
+        throw new Error('Curing hours must be a whole number of zero or greater.');
+    }
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
+        throw new Error('Curing minutes must be a whole number between 0 and 59.');
+    }
+    const durationMinutes = hours * 60 + minutes;
+    if (durationMinutes < 1) {
+        throw new Error('Curing duration must be at least one minute.');
+    }
+    if (durationMinutes > 168 * 60) {
+        throw new Error('Curing duration cannot exceed 168 hours.');
+    }
+    return {
+        rpm,
+        durationMinutes,
+        direction: byId<HTMLSelectElement>('curing-direction').value as TCuringDirection
+    };
+}
+
+function readOptionalTimePart(id: string): number {
+    const value = byId<HTMLInputElement>(id).value.trim();
+    return value.length === 0 ? 0 : Number.parseFloat(value);
+}
+
 function renderPreview(preview: IPreviewResult | null): void {
     const summary = byId<HTMLDivElement>('summary');
     const warnings = byId<HTMLUListElement>('warnings');
@@ -728,6 +937,12 @@ function renderPreview(preview: IPreviewResult | null): void {
     addMetric(summary, 'G-code lines', preview.plan.gcode.length.toString());
     addMetric(summary, 'Time', `${Math.round(preview.plan.totalTimeS)} s`);
     addMetric(summary, 'Tow', `${preview.plan.totalTowUseM.toFixed(2)} m`);
+    if (preview.recipe.windParameters.curing) {
+        const curing = preview.recipe.windParameters.curing;
+        addMetric(summary, 'Curing', `${formatNumber(curing.rpm)} RPM ${curing.direction === 'positive' ? '+Y' : '-Y'}`);
+        addMetric(summary, 'Cure duration', formatDurationMinutes(curing.durationMinutes));
+        addMetric(summary, 'Cure rotations', formatNumber(curing.rpm * curing.durationMinutes));
+    }
 
     for (const warning of preview.recipe.warnings) {
         const item = document.createElement('li');
@@ -874,6 +1089,20 @@ function bindRecipeInvalidationEvents(): void {
     });
 }
 
+function bindCuringInvalidationEvents(): void {
+    const curingOptions = byId<HTMLFieldSetElement>('curing-options');
+    curingOptions.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((input) => {
+        input.addEventListener('input', () => {
+            if (input.id !== 'append-curing') {
+                invalidateGeneratedCuring();
+            }
+            if (input.id === 'append-curing' || byId<HTMLInputElement>('append-curing').checked) {
+                invalidateGeneratedRecipe();
+            }
+        });
+    });
+}
+
 function invalidateGeneratedRecipe(): void {
     if (!currentPreview) {
         return;
@@ -883,6 +1112,16 @@ function invalidateGeneratedRecipe(): void {
     updateRunControls();
     setArtifactPaths(null);
     setRecipeMessage('Recipe changed. Generate a new preview before running.');
+}
+
+function invalidateGeneratedCuring(): void {
+    if (!currentCuringPlan) {
+        return;
+    }
+    byId<HTMLInputElement>('arm-run').checked = false;
+    resetGeneratedCuring();
+    updateRunControls();
+    setCuringMessage('Curing settings changed. Generate new G-code before running.');
 }
 
 function openCustomLayerDialog(): void {
@@ -1968,7 +2207,9 @@ function getSelectedRunCommands(): string[] | null {
     if (selectedRunSource === 'uploaded') {
         return countMachineCommands(uploadedGCodeCommands) > 0 ? uploadedGCodeCommands : null;
     }
-
+    if (selectedRunSource === 'generated-curing') {
+        return currentCuringPlan ? currentCuringPlan.gcode : null;
+    }
     return currentPreview ? currentPreview.plan.gcode : null;
 }
 
@@ -2002,6 +2243,10 @@ function createPortOption(port: ISerialPortOption): HTMLOptionElement {
 
 function setRecipeMessage(message: string): void {
     byId<HTMLDivElement>('recipe-message').textContent = message;
+}
+
+function setCuringMessage(message: string): void {
+    byId<HTMLDivElement>('curing-message').textContent = message;
 }
 
 function setMachineMessage(message: string): void {
@@ -2081,12 +2326,46 @@ async function copyGCodePreview(): Promise<void> {
     }
 }
 
-function normalizeGCodeFilename(filename: string): string {
+function downloadCuringGCode(): void {
+    if (!currentCuringPlan) {
+        return;
+    }
+    const normalizedFilename = normalizeGCodeFilename(curingGCodeFilename, DEFAULT_CURING_GCODE_FILENAME);
+    curingGCodeFilename = normalizedFilename;
+    byId<HTMLInputElement>('curing-gcode-filename').value = normalizedFilename;
+    downloadGCode(currentCuringPlan.gcode, normalizedFilename);
+}
+
+async function copyCuringGCode(): Promise<void> {
+    if (!currentCuringPlan) {
+        return;
+    }
+    try {
+        await writeTextToClipboard(currentCuringPlan.gcode.join('\n'));
+        setCuringMessage('Curing G-code copied to clipboard.');
+    } catch (error) {
+        setCuringMessage(getErrorMessage(error));
+    }
+}
+
+function downloadGCode(commands: string[], filename: string): void {
+    const blob = new Blob([`${commands.join('\n')}\n`], { type: 'text/plain;charset=utf-8' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(downloadUrl);
+}
+
+function normalizeGCodeFilename(filename: string, fallback = DEFAULT_GCODE_FILENAME): string {
     const sanitized = filename
         .trim()
         .replace(/[\\/:*?"<>|]+/g, '-')
         .replace(/\s+/g, ' ');
-    const withFallback = sanitized || DEFAULT_GCODE_FILENAME;
+    const withFallback = sanitized || fallback;
     return /\.gcode$/i.test(withFallback) ? withFallback : `${withFallback}.gcode`;
 }
 
@@ -2164,6 +2443,22 @@ function formatMM(value: number): string {
     return Number.isInteger(value) ? value.toString() : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+function formatNumber(value: number): string {
+    return Number.isInteger(value) ? value.toString() : value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function formatDurationMinutes(totalMinutes: number): string {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) {
+        return `${minutes} min`;
+    }
+    if (minutes === 0) {
+        return `${hours} h`;
+    }
+    return `${hours} h ${minutes} min`;
+}
+
 function getErrorMessage(error: unknown): string {
     if (error instanceof Error) {
         return error.message.replace(/^Error invoking remote method '[^']+': Error: /, '');
@@ -2228,6 +2523,7 @@ function createWebCycloneApi(): ICycloneApi {
 
     return {
         generatePreview: (request) => postJson('/api/recipe/preview', request),
+        generateCuring: (request) => postJson('/api/curing/generate', request),
         generateArtifactPreview: (request) => postJson('/api/artifact/preview', request),
         chooseBasePath: async () => window.prompt('Enter output base path on server (example: /home/pi/jobs/tube1)') ?? null,
         saveArtifacts: (request) => postJson('/api/recipe/artifacts', request),

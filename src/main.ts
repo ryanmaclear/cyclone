@@ -9,8 +9,10 @@ import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
 import { createArtifactRecipe } from './artifact';
+import { CURING_WARNINGS, generateCuringPlan, parseCuringParameters } from './curing';
 import {
   IArtifactPreviewRequest,
+  ICuringRequest,
   IMarlinStatus,
   IPreviewRequest,
   IPreviewResult,
@@ -62,6 +64,10 @@ function createWindow() {
 ipcMain.handle('recipe:generate-preview', async (_event, request: IPreviewRequest): Promise<IPreviewResult> => {
   console.log('Generating recipe preview...');
   const recipe = generateTubeRecipe(request.recipeInput);
+  if (request.curingParameters) {
+    recipe.windParameters.curing = parseCuringParameters(request.curingParameters);
+    recipe.warnings.push(...CURING_WARNINGS);
+  }
   const plan = planWindDetailed(recipe.windParameters, false, false);
   const plotStream = plotGCode(plan.gcode);
   const plotDataUrl = plotStream ? `data:image/png;base64,${(await streamToBuffer(plotStream)).toString('base64')}` : null;
@@ -72,6 +78,10 @@ ipcMain.handle('recipe:generate-preview', async (_event, request: IPreviewReques
     plan,
     plotDataUrl
   };
+});
+
+ipcMain.handle('curing:generate', (_event, request: ICuringRequest) => {
+  return generateCuringPlan(request.curingParameters);
 });
 
 ipcMain.handle('artifact:generate-preview', async (_event, request: IArtifactPreviewRequest): Promise<IPreviewResult> => {

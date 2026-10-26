@@ -315,4 +315,19 @@ const feedRateIndex = disabledSoftEndstopsPlan.gcode.findIndex((command) => comm
 assert.ok(feedRateIndex >= 0);
 assert.strictEqual(disabledSoftEndstopsPlan.gcode[feedRateIndex + 1], 'M211 S0');
 
+const curedPlan = planWindDetailed({
+    ...mediumRecipe.windParameters,
+    curing: {
+        rpm: 1,
+        durationMinutes: 1,
+        direction: 'positive'
+    }
+}, false, false);
+assert.strictEqual(curedPlan.totalTimeS, plannedRecipe.totalTimeS + 60);
+assert.strictEqual(curedPlan.totalTowUseM, plannedRecipe.totalTowUseM);
+assert.strictEqual(curedPlan.layers.length, plannedRecipe.layers.length);
+assert.ok(curedPlan.gcode.includes('; Curing cycle start'));
+assert.ok(curedPlan.gcode.includes('G1 Y60 F360'));
+assert.ok(plotGCode(curedPlan.gcode));
+
 console.log('Recipe tests passed');

@@ -1,9 +1,15 @@
 import type { IPlanWindResult } from './planner';
 import type { IGeneratedRecipe, ITubeRecipeInput } from './recipe';
 import type { IWindParameters } from './planner/types';
+import type { ICuringParameters, ICuringPlan } from './curing';
 
 export interface IPreviewRequest {
     recipeInput: ITubeRecipeInput;
+    curingParameters?: ICuringParameters;
+}
+
+export interface ICuringRequest {
+    curingParameters: ICuringParameters;
 }
 
 export interface IArtifactPreviewRequest {
@@ -55,6 +61,7 @@ export interface IMarlinStatus {
 
 export interface ICycloneApi {
     generatePreview(request: IPreviewRequest): Promise<IPreviewResult>;
+    generateCuring(request: ICuringRequest): Promise<ICuringPlan>;
     generateArtifactPreview(request: IArtifactPreviewRequest): Promise<IPreviewResult>;
     chooseBasePath(): Promise<string | null>;
     saveArtifacts(request: ISaveArtifactsRequest): Promise<ISaveArtifactsResult>;

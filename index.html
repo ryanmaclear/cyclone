@@ -73,6 +73,41 @@
         padding: 12px 14px;
       }
 
+      .workflow-tabs {
+        display: grid;
+        gap: 4px;
+        grid-template-columns: 1fr 1fr;
+        margin-bottom: -1px;
+        padding: 0 6px;
+        position: relative;
+        z-index: 1;
+      }
+
+      button.workflow-tab {
+        background: #e8ece7;
+        border: 1px solid #cbd3c8;
+        border-bottom-color: #d8ddd2;
+        border-radius: 6px 6px 0 0;
+        color: #4d5961;
+      }
+
+      button.workflow-tab.active {
+        background: #ffffff;
+        border-color: #d8ddd2;
+        border-bottom-color: #ffffff;
+        color: #20242a;
+      }
+
+      button.workflow-tab:focus-visible {
+        outline: 2px solid #2f6f73;
+        outline-offset: 2px;
+      }
+
+      .workflow-panel {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+      }
+
       .panel-body {
         padding: 14px;
       }
@@ -151,6 +186,29 @@
 
       .artifact-upload-card button {
         justify-self: start;
+      }
+
+      .curing-note {
+        color: #66716a;
+        font-size: 12px;
+        line-height: 1.4;
+        margin: 12px 0 0;
+      }
+
+      .curing-output {
+        background: #fbfbf8;
+        border: 1px solid #d8ddd2;
+        border-radius: 4px;
+        margin-top: 14px;
+        padding: 10px;
+      }
+
+      .gcode-preview.curing-gcode-preview {
+        height: 190px;
+        margin-bottom: 0;
+        min-height: 190px;
+        overflow: auto;
+        white-space: pre;
       }
 
       .generation-overlay {
@@ -973,8 +1031,32 @@
 
     <main>
       <div>
-        <section>
-          <h2>Tube Recipe</h2>
+        <div class="workflow-tabs" role="tablist" aria-label="Process setup">
+          <button
+            id="tube-recipe-tab"
+            class="workflow-tab active"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="tube-recipe-section"
+          >Tube Recipe</button>
+          <button
+            id="curing-tab"
+            class="workflow-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="curing-section"
+            tabindex="-1"
+          >Curing</button>
+        </div>
+
+        <section
+          id="tube-recipe-section"
+          class="workflow-panel"
+          role="tabpanel"
+          aria-labelledby="tube-recipe-tab"
+        >
           <div class="panel-body" id="tube-recipe-form">
             <fieldset id="tube-options" class="tube-options">
               <div class="field-grid">
@@ -1085,6 +1167,61 @@
           </div>
         </section>
 
+        <section
+          id="curing-section"
+          class="workflow-panel"
+          role="tabpanel"
+          aria-labelledby="curing-tab"
+          hidden
+        >
+          <div class="panel-body">
+            <fieldset id="curing-options" class="tube-options">
+              <div class="field-grid">
+                <label>
+                  Rotations per minute
+                  <input id="curing-rpm" type="number" min="0.000001" step="0.1" />
+                </label>
+                <label>
+                  Direction
+                  <select id="curing-direction">
+                    <option value="positive">+Y</option>
+                    <option value="negative">-Y</option>
+                  </select>
+                </label>
+                <label>
+                  Hours
+                  <input id="curing-hours" type="number" min="0" max="168" step="1" inputmode="numeric" />
+                </label>
+                <label>
+                  Minutes
+                  <input id="curing-minutes" type="number" min="0" max="59" step="1" inputmode="numeric" />
+                </label>
+                <label class="checkbox-option full-width-field">
+                  <input id="append-curing" type="checkbox" />
+                  Append this curing cycle after winding
+                </label>
+              </div>
+            </fieldset>
+            <p class="curing-note">
+              Requested speed and duration are nominal. Controller feed and acceleration limits may extend runtime.
+              Curing disables software endstops and leaves them disabled.
+            </p>
+            <div class="button-row">
+              <button id="generate-curing" type="button">Generate Curing</button>
+            </div>
+            <div id="curing-message" class="message"></div>
+            <div class="metric-grid" id="curing-summary"></div>
+            <div class="curing-output">
+              <div class="gcode-toolbar">
+                <input id="curing-gcode-filename" class="gcode-filename-input" type="text" value="curing.gcode" />
+                <button id="download-curing-gcode" class="secondary" type="button" disabled>Download</button>
+                <button id="copy-curing-gcode" class="secondary" type="button" disabled>Copy</button>
+              </div>
+              <pre id="curing-gcode-preview" class="gcode-preview curing-gcode-preview empty">No curing G-code generated</pre>
+            </div>
+          </div>
+        </section>
+
         <section id="machine-section" class="machine-section" style="margin-top: 18px;">
           <h2>Machine</h2>
           <div class="panel-body">
@@ -1115,7 +1252,8 @@
                 <label>
                   G-code source
                   <select id="run-source">
-                    <option value="generated">Generated preview</option>
+                    <option value="generated-winding">Generated winding</option>
+                    <option value="generated-curing">Generated curing</option>
                     <option value="uploaded">Uploaded file</option>
                   </select>
                 </label>

@@ -9,6 +9,7 @@ import { ECoordinateAxes } from './types';
 import { ELayerType } from './types';
 import { WinderMachine } from './machine';
 import { radToDeg, degToRad, stripPrecision } from '../helpers'; 
+import { generateCuringPlan } from '../curing';
 
 export interface IPlannedLayerSummary {
     layerIndex: number;
@@ -130,9 +131,11 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
         console.log(`Total tow required: ${cumulativeTowUseM} meters\n`);
     }
 
+    const curingPlan = windingParameters.curing ? generateCuringPlan(windingParameters.curing) : null;
+
     return {
-        gcode: machine.getGCode(),
-        totalTimeS: cumulativeTimeS,
+        gcode: curingPlan ? [...machine.getGCode(), ...curingPlan.gcode] : machine.getGCode(),
+        totalTimeS: cumulativeTimeS + (curingPlan ? curingPlan.totalTimeS : 0),
         totalTowUseM: cumulativeTowUseM,
         layers: layerSummaries,
         previewSegments: machine.getPreviewSegments()

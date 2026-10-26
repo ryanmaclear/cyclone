@@ -77,7 +77,8 @@ There is currently no runtime validation of the `.wind` contents. A malformed fi
 5. Iterates through `layers` in order.
 6. Dispatches each layer to `planHoopLayer`, `planHelicalLayer`, or `planSkipLayer`.
 7. Logs estimated layer time, layer tow use, total time, and total tow use to the terminal.
-8. Returns the generated G-code lines.
+8. Appends the optional `curing` cycle after all winding layers.
+9. Returns the generated G-code lines.
 
 If a hoop layer is marked `terminal`, planning stops after that layer. If later layers are present, `planWind` prints a warning and aborts before planning them.
 
@@ -91,7 +92,15 @@ If a hoop layer is marked `terminal`, planning stops after that layer. If later 
 - `insertComment(text)` emits `; ${text}`.
 - `setFeedRate(feedRateMMpM)` stores the feed rate and emits `G0 F...`.
 
-The planner only emits rapid-positioning `G0` commands. It does not emit `G1`, acceleration settings, unit mode commands, homing, spindle commands, or controller setup/teardown.
+Winding layers only emit rapid-positioning `G0` commands. The optional curing cycle uses `G1` plus explicit unit and positioning modes as described below.
+
+### Optional curing cycle
+
+A `.wind` artifact may include `curing` with positive `rpm`, a whole-number `durationMinutes` from 1 through 10080, and a `positive` or `negative` direction. The curing generator converts RPM to a Y feed rate with `F = rpm * 360` degrees per minute.
+
+Curing begins with `G21`, `G90`, and `M211 S0`. It emits ten-second Y-only `G1` moves separated by `M400` synchronization barriers and `G92 Y0` coordinate resets, then leaves Y at logical zero. The shorter moves bound normal host pause/stop latency at the cost of more G-code and small interruptions between chunks. Software endstops remain disabled when curing finishes.
+
+Requested RPM and duration are nominal. Firmware feed-rate and acceleration limits can make the physical cycle take longer than the requested duration.
 
 ### Moves
 
@@ -696,8 +705,9 @@ Cyclone's planner currently generates a compact subset of G-code:
 - `; ...` comments
 - `G0` moves and feed-rate setting
 - `G92` coordinate resets
+- optional curing commands: `G21`, `G90`, `G1`, `M211 S0`, and `M400`
 
-It does not currently emit:
+Outside the optional curing block, it does not currently emit:
 
 - `G90` absolute positioning mode
 - `G21` millimeter units mode
@@ -720,6 +730,7 @@ The machine or sender must already be in the expected mode before running the ge
 - Helical `numCircuits` must be divisible by `patternNumber`; otherwise that layer is skipped after a warning.
 - All planned commands use one feed rate.
 - Time estimates ignore acceleration.
+- Curing duration and RPM are nominal and do not compensate for acceleration or firmware feed-rate limits.
 - The planner assumes the controller interprets the generated `G0` and `G92` commands in the intended absolute coordinate mode.
 - Only non-terminal hoop layers can be terminal; helical and skip layers do not have a terminal mode.
 
