@@ -22,7 +22,7 @@ export interface ICuringValidationResult {
 }
 
 export const CURING_CHUNK_SECONDS = 10;
-export const MAX_CURING_DURATION_MINUTES = 168 * 60;
+export const MAX_CURING_DURATION_MINUTES = 72 * 60;
 export const CURING_SECTION_START = '; Curing cycle start';
 export const CURING_WARNINGS = [
     'Appended curing uses nominal RPM and duration; controller motion limits may extend the actual runtime.',
@@ -45,7 +45,7 @@ export function validateCuringParameters(value: unknown): ICuringValidationResul
     if (!Number.isInteger(parameters.durationMinutes) || (parameters.durationMinutes as number) < 1) {
         errors.push('Curing duration must be a positive whole number of minutes.');
     } else if ((parameters.durationMinutes as number) > MAX_CURING_DURATION_MINUTES) {
-        errors.push('Curing duration cannot exceed 168 hours.');
+        errors.push('Curing duration cannot exceed 72 hours.');
     }
     if (parameters.direction !== 'positive' && parameters.direction !== 'negative') {
         errors.push('Curing direction must be positive or negative.');
@@ -81,15 +81,16 @@ export function generateCuringPlan(value: unknown): ICuringPlan {
         `; Requested ${stripPrecision(parameters.rpm)} RPM for ${parameters.durationMinutes} minute${parameters.durationMinutes === 1 ? '' : 's'} in ${parameters.direction} Y`,
         'G21',
         'G90',
-        'M211 S0'
+        'M211 S0',
+        'G92 Y0'
     ];
 
     for (let index = 0; index < chunkCount; index++) {
-        gcode.push('G92 Y0');
-        gcode.push(`G1 Y${stripPrecision(directionMultiplier * chunkDegrees)} F${stripPrecision(feedRateDegreesPerMinute)}`);
-        gcode.push('M400');
+        const targetDegrees = directionMultiplier * chunkDegrees * (index + 1);
+        gcode.push(`G1 Y${stripPrecision(targetDegrees)} F${stripPrecision(feedRateDegreesPerMinute)}`);
     }
 
+    gcode.push('M400');
     gcode.push('G92 Y0');
     gcode.push('; Curing cycle complete');
 

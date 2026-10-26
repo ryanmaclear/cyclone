@@ -96,9 +96,9 @@ Winding layers only emit rapid-positioning `G0` commands. The optional curing cy
 
 ### Optional curing cycle
 
-A `.wind` artifact may include `curing` with positive `rpm`, a whole-number `durationMinutes` from 1 through 10080, and a `positive` or `negative` direction. The curing generator converts RPM to a Y feed rate with `F = rpm * 360` degrees per minute.
+A `.wind` artifact may include `curing` with positive `rpm`, a whole-number `durationMinutes` from 1 through 4320, and a `positive` or `negative` direction. The curing generator converts RPM to a Y feed rate with `F = rpm * 360` degrees per minute.
 
-Curing begins with `G21`, `G90`, and `M211 S0`. It emits ten-second Y-only `G1` moves separated by `M400` synchronization barriers and `G92 Y0` coordinate resets, then leaves Y at logical zero. The shorter moves bound normal host pause/stop latency at the cost of more G-code and small interruptions between chunks. Software endstops remain disabled when curing finishes.
+Curing begins with `G21`, `G90`, `M211 S0`, and `G92 Y0`. It emits cumulative ten-second Y-only `G1` targets without synchronization barriers between them, allowing Marlin to blend the segments into continuous rotation. One final `M400` waits for completion before `G92 Y0` restores logical zero. Software endstops remain disabled when curing finishes.
 
 Requested RPM and duration are nominal. Firmware feed-rate and acceleration limits can make the physical cycle take longer than the requested duration.
 

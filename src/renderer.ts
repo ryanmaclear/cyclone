@@ -873,8 +873,8 @@ function readCuringParameters(): ICuringParameters {
     if (durationMinutes < 1) {
         throw new Error('Curing duration must be at least one minute.');
     }
-    if (durationMinutes > 168 * 60) {
-        throw new Error('Curing duration cannot exceed 168 hours.');
+    if (durationMinutes > 72 * 60) {
+        throw new Error('Curing duration cannot exceed 72 hours.');
     }
     return {
         rpm,
