@@ -118,6 +118,8 @@ machine.move({
 
 The position object may include one, two, or all three logical axes. `WinderMachine` fills in unspecified axes from its `lastPosition`, so a move that specifies only `mandrel` keeps the current carriage and delivery-head positions.
 
+When the delivery head is disabled (`deliveryHead.mode` is `fixed`), the planner still applies the configured lead-in and lead-out values to all carriage and mandrel calculations. `WinderMachine` removes only the delivery-head coordinate before emitting commands, so no `Z` axis appears in the setup or winding G-code while the generated X/mandrel path remains unchanged.
+
 For each emitted axis, `moveSegment`:
 
 1. Converts the logical axis name to `X`, `Y`, or `Z`.

@@ -8,7 +8,7 @@ import type { IWindParameters,
 import { ECoordinateAxes } from './types';
 import { ELayerType } from './types';
 import { WinderMachine } from './machine';
-import { radToDeg, degToRad, stripPrecision } from '../helpers'; 
+import { radToDeg, degToRad } from '../helpers';
 import { generateCuringPlan } from '../curing';
 import { getGCodeAxisLookup, normalizeGCodeDialect } from '../gcode-dialect';
 
@@ -53,7 +53,7 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
     machine.addRawGCode('G28 X');
     machine.addRawGCode(
         deliveryHeadParameters.mode === 'fixed'
-            ? `G0 ${axisLookup[ECoordinateAxes.CARRIAGE]}10 ${axisLookup[ECoordinateAxes.MANDREL]}0 ${axisLookup[ECoordinateAxes.DELIVERY_HEAD]}${stripPrecision(deliveryHeadParameters.positionDegrees)}`
+            ? `G0 ${axisLookup[ECoordinateAxes.CARRIAGE]}10 ${axisLookup[ECoordinateAxes.MANDREL]}0`
             : `G0 ${axisLookup[ECoordinateAxes.CARRIAGE]}10 ${axisLookup[ECoordinateAxes.MANDREL]}0 ${axisLookup[ECoordinateAxes.DELIVERY_HEAD]}0`
     );
     machine.setPosition({[ECoordinateAxes.CARRIAGE]: 0});

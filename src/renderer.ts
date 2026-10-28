@@ -180,7 +180,6 @@ function bindEvents(): void {
     byId<HTMLInputElement>('target-thickness').addEventListener('change', () => syncLayerCountFromTargetThickness(true));
     byId<HTMLInputElement>('tow-thickness').addEventListener('input', () => syncActiveLayerDimension(false));
     byId<HTMLInputElement>('tow-thickness').addEventListener('change', () => syncActiveLayerDimension(true));
-    byId<HTMLInputElement>('fixed-delivery-head').addEventListener('change', updateDeliveryHeadControls);
     byId<HTMLSelectElement>('strength').addEventListener('change', updateStandardTerminalHoopControl);
     byId<HTMLButtonElement>('edit-custom-layers').addEventListener('click', openCustomLayerDialog);
     byId<HTMLButtonElement>('add-custom-layer').addEventListener('click', addCustomLayerDraft);
@@ -231,7 +230,6 @@ function bindEvents(): void {
     bindRecipeInvalidationEvents();
     bindCuringInvalidationEvents();
     updateLayerModeControls();
-    updateDeliveryHeadControls();
     updateGCodeDialectControls();
     syncActiveLayerDimension(true);
     updateGCodePanel(null);
@@ -1014,14 +1012,6 @@ function updateLayerModeControls(): void {
     byId<HTMLLabelElement>('target-thickness-field').hidden = layerMode !== 'thickness';
     updateStandardTerminalHoopControl();
     updateCustomLayerSummary();
-}
-
-function updateDeliveryHeadControls(): void {
-    const fixedDeliveryHead = byId<HTMLInputElement>('fixed-delivery-head').checked;
-    byId<HTMLInputElement>('lead-in').disabled = fixedDeliveryHead;
-    byId<HTMLInputElement>('lead-out').disabled = fixedDeliveryHead;
-    byId<HTMLLabelElement>('lead-in-field').classList.toggle('inactive-field', fixedDeliveryHead);
-    byId<HTMLLabelElement>('lead-out-field').classList.toggle('inactive-field', fixedDeliveryHead);
 }
 
 function changeRecipeMethod(): void {

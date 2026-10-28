@@ -61,6 +61,12 @@ assert.deepStrictEqual(fixedDeliveryHeadRecipe.windParameters.deliveryHead, {
     mode: 'fixed',
     positionDegrees: 12.5
 });
+fixedDeliveryHeadRecipe.windParameters.layers.forEach((layer) => {
+    if (layer.windType === ELayerType.HELICAL) {
+        assert.strictEqual(layer.leadInMM, baseInput.leadInMM);
+        assert.strictEqual(layer.leadOutDegrees, baseInput.leadOutDegrees);
+    }
+});
 
 const disabledSoftEndstopsRecipe = generateTubeRecipe({
     ...baseInput,
@@ -305,8 +311,11 @@ assert.ok(terminalOnlyPlan.previewSegments.some((segment) => segment.groupKind =
 assert.ok(!terminalOnlyPlan.previewSegments.some((segment) => segment.groupKind === 'hoop-pass' && segment.passDirection === 'back'));
 
 const fixedDeliveryHeadPlan = planWindDetailed(fixedDeliveryHeadRecipe.windParameters, false, false);
-const fixedDeliveryHeadZCommands = fixedDeliveryHeadPlan.gcode.filter((command) => /^G0\b.*\bZ/.test(command));
-assert.deepStrictEqual(fixedDeliveryHeadZCommands, ['G0 X10 Y0 Z12.5']);
+const omitDeliveryHeadCoordinates = (commands: string[]): string[] => commands
+    .map((command) => command.replace(/ Z-?(?:\d+(?:\.\d+)?|\.\d+)/g, ''))
+    .filter((command) => command !== 'G0' && command !== 'G92');
+assert.ok(!fixedDeliveryHeadPlan.gcode.some((command) => /^(?:G0|G1|G92)\b.*\bZ-?\d/.test(command)));
+assert.deepStrictEqual(fixedDeliveryHeadPlan.gcode, omitDeliveryHeadCoordinates(plannedRecipe.gcode));
 assert.strictEqual(fixedDeliveryHeadPlan.gcode[3], 'G92 X0');
 assert.ok(!fixedDeliveryHeadPlan.gcode.some((command) => command === 'G0'));
 
