@@ -11,7 +11,8 @@ import {
     MIN_WIND_ANGLE_DEGREES,
     TOW_COVERAGES_PER_RECIPE_LAYER
 } from './recipe';
-import { CURING_WARNINGS, ICuringParameters, parseCuringParameters, validateCuringParameters } from './curing';
+import { getCuringWarnings, ICuringParameters, parseCuringParameters, validateCuringParameters } from './curing';
+import { isGCodeDialect, TGCodeDialect } from './gcode-dialect';
 
 type TUnknownRecord = Record<string, unknown>;
 
@@ -40,7 +41,7 @@ export function createArtifactRecipe(value: unknown): IGeneratedRecipe {
             ...(terminalLayerCount > 0 ? ['A final single-pass hoop contributes one tow coverage.'] : []),
             'Tow thickness is recorded but the current planner does not increase mandrel diameter between layers.',
             'Hoop and helical locks create trim regions at the ends of the part.',
-            ...(windParameters.curing ? CURING_WARNINGS : [])
+            ...(windParameters.curing ? getCuringWarnings(windParameters.gcodeDialect) : [])
         ]
     };
 }
@@ -57,6 +58,7 @@ export function validateWindArtifact(value: unknown): IWindParameters {
     const defaultFeedRate = readPositiveNumber(artifact.defaultFeedRate, 'Default feed rate', errors);
     const deliveryHead = readDeliveryHead(artifact.deliveryHead, errors);
     const disableSoftEndstops = readOptionalBoolean(artifact.disableSoftEndstops, 'Disable soft endstops', errors);
+    const gcodeDialect = readOptionalGCodeDialect(artifact.gcodeDialect, errors);
     const curing = readCuringParameters(artifact.curing, errors);
     const layers = readLayers(artifact.layers, diameter, windLength, towWidth, errors);
 
@@ -77,8 +79,20 @@ export function validateWindArtifact(value: unknown): IWindParameters {
         defaultFeedRate,
         deliveryHead,
         disableSoftEndstops,
+        ...(gcodeDialect ? {gcodeDialect} : {}),
         ...(curing ? {curing} : {})
     };
+}
+
+function readOptionalGCodeDialect(value: unknown, errors: string[]): TGCodeDialect | undefined {
+    if (typeof value === 'undefined') {
+        return undefined;
+    }
+    if (!isGCodeDialect(value)) {
+        errors.push('G-code target must be Marlin or Klipper.');
+        return undefined;
+    }
+    return value;
 }
 
 function readCuringParameters(value: unknown, errors: string[]): ICuringParameters | undefined {

@@ -10,6 +10,7 @@ import { ELayerType } from './types';
 import { WinderMachine } from './machine';
 import { radToDeg, degToRad, stripPrecision } from '../helpers'; 
 import { generateCuringPlan } from '../curing';
+import { getGCodeAxisLookup, normalizeGCodeDialect } from '../gcode-dialect';
 
 export interface IPlannedLayerSummary {
     layerIndex: number;
@@ -35,7 +36,14 @@ export function planWind(windingParameters: IWindParameters, verboseOutput = fal
 export function planWindDetailed(windingParameters: IWindParameters, verboseOutput = false, logProgress = false): IPlanWindResult {
 
     const deliveryHeadParameters = windingParameters.deliveryHead || {mode: 'automatic'};
-    const machine = new WinderMachine(windingParameters.mandrelParameters.diameter, verboseOutput, deliveryHeadParameters);
+    const gcodeDialect = normalizeGCodeDialect(windingParameters.gcodeDialect);
+    const axisLookup = getGCodeAxisLookup(gcodeDialect);
+    const machine = new WinderMachine(
+        windingParameters.mandrelParameters.diameter,
+        verboseOutput,
+        deliveryHeadParameters,
+        gcodeDialect
+    );
 
     const headerParameters = {
         mandrel: windingParameters.mandrelParameters,
@@ -43,10 +51,14 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
     }
     machine.insertComment(`Parameters ${JSON.stringify(headerParameters)}`);
     machine.addRawGCode('G28 X');
-    machine.addRawGCode(deliveryHeadParameters.mode === 'fixed' ? `G0 X10 Y0 Z${stripPrecision(deliveryHeadParameters.positionDegrees)}` : 'G0 X10 Y0 Z0');
+    machine.addRawGCode(
+        deliveryHeadParameters.mode === 'fixed'
+            ? `G0 ${axisLookup[ECoordinateAxes.CARRIAGE]}10 ${axisLookup[ECoordinateAxes.MANDREL]}0 ${axisLookup[ECoordinateAxes.DELIVERY_HEAD]}${stripPrecision(deliveryHeadParameters.positionDegrees)}`
+            : `G0 ${axisLookup[ECoordinateAxes.CARRIAGE]}10 ${axisLookup[ECoordinateAxes.MANDREL]}0 ${axisLookup[ECoordinateAxes.DELIVERY_HEAD]}0`
+    );
     machine.setPosition({[ECoordinateAxes.CARRIAGE]: 0});
     machine.setFeedRate(windingParameters.defaultFeedRate);
-    if (windingParameters.disableSoftEndstops) {
+    if (windingParameters.disableSoftEndstops && gcodeDialect === 'marlin') {
         machine.addRawGCode('M211 S0');
     }
     // TODO: Run other setup stuff
@@ -131,7 +143,9 @@ export function planWindDetailed(windingParameters: IWindParameters, verboseOutp
         console.log(`Total tow required: ${cumulativeTowUseM} meters\n`);
     }
 
-    const curingPlan = windingParameters.curing ? generateCuringPlan(windingParameters.curing) : null;
+    const curingPlan = windingParameters.curing
+        ? generateCuringPlan(windingParameters.curing, gcodeDialect)
+        : null;
 
     return {
         gcode: curingPlan ? [...machine.getGCode(), ...curingPlan.gcode] : machine.getGCode(),

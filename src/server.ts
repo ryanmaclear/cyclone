@@ -12,7 +12,7 @@ import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
 import { createArtifactRecipe } from './artifact';
-import { CURING_WARNINGS, generateCuringPlan, parseCuringParameters } from './curing';
+import { generateCuringPlan, getCuringWarnings, parseCuringParameters } from './curing';
 import { getServerConfig } from './server-config';
 import {
     IArtifactPreviewRequest,
@@ -79,7 +79,7 @@ app.post('/api/recipe/preview', async (request: Request<TEmptyParams, unknown, I
         const recipe = generateTubeRecipe(request.body.recipeInput);
         if (request.body.curingParameters) {
             recipe.windParameters.curing = parseCuringParameters(request.body.curingParameters);
-            recipe.warnings.push(...CURING_WARNINGS);
+            recipe.warnings.push(...getCuringWarnings(recipe.windParameters.gcodeDialect));
         }
         const plan = planWindDetailed(recipe.windParameters, false, false);
         const plotStream = plotGCode(plan.gcode);
@@ -92,7 +92,7 @@ app.post('/api/recipe/preview', async (request: Request<TEmptyParams, unknown, I
 
 app.post('/api/curing/generate', (request: Request<TEmptyParams, unknown, ICuringRequest>, response: Response) => {
     try {
-        response.json(generateCuringPlan(request.body.curingParameters));
+        response.json(generateCuringPlan(request.body.curingParameters, request.body.gcodeDialect));
     } catch (error) {
         response.status(400).json({ error: getErrorMessage(error) });
     }

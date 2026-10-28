@@ -13,6 +13,7 @@ type TCustomRecipeLayer = import('./recipe').TCustomRecipeLayer;
 type ICuringParameters = import('./curing').ICuringParameters;
 type ICuringPlan = import('./curing').ICuringPlan;
 type TCuringDirection = import('./curing').TCuringDirection;
+type TGCodeDialect = import('./gcode-dialect').TGCodeDialect;
 
 type TColorMode = 'layer' | 'circuit' | 'pass';
 type TRunSource = 'generated-winding' | 'generated-curing' | 'uploaded';
@@ -107,6 +108,7 @@ let loadedArtifactFilename = '';
 let artifactUploadInProgress = false;
 let tubeOptionControlSnapshot: ITubeOptionControlState[] | null = null;
 let curingOptionControlSnapshot: ITubeOptionControlState[] | null = null;
+let gcodeDialectSnapshot: TGCodeDialect | null = null;
 let gcodeFilename = DEFAULT_GCODE_FILENAME;
 let curingGCodeFilename = DEFAULT_CURING_GCODE_FILENAME;
 let wasGCodePaneStacked = false;
@@ -144,6 +146,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function bindEvents(): void {
     bindWorkflowTabs();
+    byId<HTMLInputElement>('gcode-dialect').addEventListener('change', changeGCodeDialect);
     byId<HTMLButtonElement>('generate').addEventListener('click', generatePreview);
     byId<HTMLButtonElement>('clear-recipe').addEventListener('click', clearGeneratedRecipe);
     byId<HTMLButtonElement>('save').addEventListener('click', saveArtifacts);
@@ -229,6 +232,7 @@ function bindEvents(): void {
     bindCuringInvalidationEvents();
     updateLayerModeControls();
     updateDeliveryHeadControls();
+    updateGCodeDialectControls();
     syncActiveLayerDimension(true);
     updateGCodePanel(null);
     renderCuringPlan(null);
@@ -268,6 +272,31 @@ function bindWorkflowTabs(): void {
     });
 
     selectWorkflowTab('recipe');
+}
+
+function getSelectedGCodeDialect(): TGCodeDialect {
+    return byId<HTMLInputElement>('gcode-dialect').checked ? 'marlin' : 'klipper';
+}
+
+function changeGCodeDialect(): void {
+    updateGCodeDialectControls();
+    invalidateGeneratedRecipe();
+    invalidateGeneratedCuring();
+}
+
+function updateGCodeDialectControls(): void {
+    const dialect = getSelectedGCodeDialect();
+    const mandrelAxis = dialect === 'klipper' ? 'R' : 'Y';
+    const disableSoftEndstops = byId<HTMLInputElement>('disable-soft-endstops');
+    disableSoftEndstops.disabled = dialect === 'klipper' || loadedArtifactFilename.length > 0;
+    byId<HTMLElement>('disable-soft-endstops-label').textContent = dialect === 'klipper'
+        ? 'Disable Soft Endstops (Marlin only)'
+        : 'Disable Soft Endstops';
+    byId<HTMLOptionElement>('curing-direction-positive').textContent = `+${mandrelAxis}`;
+    byId<HTMLOptionElement>('curing-direction-negative').textContent = `-${mandrelAxis}`;
+    byId<HTMLParagraphElement>('curing-controller-note').textContent = dialect === 'klipper'
+        ? 'Requested speed and duration are nominal. Controller feed and acceleration limits may extend runtime. Klipper output uses the R mandrel axis and does not emit M211.'
+        : 'Requested speed and duration are nominal. Controller feed and acceleration limits may extend runtime. Curing disables software endstops and leaves them disabled.';
 }
 
 function selectWorkflowTab(selectedTab: TWorkflowTab): void {
@@ -320,7 +349,10 @@ async function generateCuring(): Promise<void> {
     byId<HTMLButtonElement>('generate-curing').disabled = true;
 
     try {
-        const plan = await cyclone.generateCuring({curingParameters: readCuringParameters()});
+        const plan = await cyclone.generateCuring({
+            curingParameters: readCuringParameters(),
+            gcodeDialect: getSelectedGCodeDialect()
+        });
         currentCuringPlan = plan;
         renderCuringPlan(plan);
         selectedRunSource = 'generated-curing';
@@ -360,7 +392,11 @@ function renderCuringPlan(plan: ICuringPlan | null): void {
     byId<HTMLButtonElement>('copy-curing-gcode').disabled = false;
     addMetric(summary, 'Requested time', formatDurationMinutes(plan.totalTimeS / 60));
     addMetric(summary, 'Rotations', formatNumber(plan.totalRotations));
-    addMetric(summary, 'Y feed', `${formatNumber(plan.feedRateDegreesPerMinute)} deg/min`);
+    addMetric(
+        summary,
+        `${getSelectedGCodeDialect() === 'klipper' ? 'R' : 'Y'} feed`,
+        `${formatNumber(plan.feedRateDegreesPerMinute)} deg/min`
+    );
     addMetric(summary, '10 s chunks', plan.chunkCount.toString());
 }
 
@@ -432,6 +468,9 @@ async function loadArtifactFile(): Promise<void> {
 
         const preview = await cyclone.generateArtifactPreview({windParameters: artifact});
         loadedArtifactFilename = file.name;
+        gcodeDialectSnapshot = getSelectedGCodeDialect();
+        byId<HTMLInputElement>('gcode-dialect').checked = (preview.recipe.windParameters.gcodeDialect ?? 'marlin') === 'marlin';
+        updateGCodeDialectControls();
         clearTubeOptionValuesForArtifact();
         applyArtifactCuringParameters(preview.recipe.windParameters.curing);
         setArtifactLockState(true);
@@ -442,6 +481,7 @@ async function loadArtifactFile(): Promise<void> {
         loadedArtifactFilename = '';
         restoreTubeOptionValues();
         restoreCuringOptionValues();
+        restoreGCodeDialect();
         input.value = '';
         setArtifactLockState(false);
         const message = getErrorMessage(error);
@@ -463,6 +503,7 @@ function discardArtifact(): void {
     byId<HTMLInputElement>('arm-run').checked = false;
     restoreTubeOptionValues();
     restoreCuringOptionValues();
+    restoreGCodeDialect();
     setArtifactLockState(false);
     resetGeneratedRecipe();
     resetGeneratedCuring();
@@ -480,7 +521,18 @@ function setArtifactLockState(locked: boolean): void {
     byId<HTMLDivElement>('artifact-upload-card').classList.toggle('loaded', locked);
     byId<HTMLButtonElement>('generate').disabled = locked;
     byId<HTMLButtonElement>('generate-curing').disabled = locked;
+    byId<HTMLInputElement>('gcode-dialect').disabled = locked;
+    updateGCodeDialectControls();
     updateRunControls();
+}
+
+function restoreGCodeDialect(): void {
+    if (!gcodeDialectSnapshot) {
+        return;
+    }
+    byId<HTMLInputElement>('gcode-dialect').checked = gcodeDialectSnapshot === 'marlin';
+    gcodeDialectSnapshot = null;
+    updateGCodeDialectControls();
 }
 
 function updateArtifactStatus(message: string, isError = false): void {
@@ -852,7 +904,9 @@ function readRecipeInput(): ITubeRecipeInput {
         leadOutDegrees: readNumber('lead-out'),
         fixedDeliveryHead: byId<HTMLInputElement>('fixed-delivery-head').checked,
         fixedDeliveryHeadPosition: 0,
-        disableSoftEndstops: byId<HTMLInputElement>('disable-soft-endstops').checked
+        disableSoftEndstops: getSelectedGCodeDialect() === 'marlin'
+            && byId<HTMLInputElement>('disable-soft-endstops').checked,
+        gcodeDialect: getSelectedGCodeDialect()
     };
 }
 

@@ -1,4 +1,10 @@
 import { stripPrecision } from './helpers';
+import {
+    DEFAULT_GCODE_DIALECT,
+    getMandrelGCodeAxis,
+    normalizeGCodeDialect,
+    TGCodeDialect
+} from './gcode-dialect';
 
 export type TCuringDirection = 'positive' | 'negative';
 
@@ -24,10 +30,17 @@ export interface ICuringValidationResult {
 export const CURING_CHUNK_SECONDS = 10;
 export const MAX_CURING_DURATION_MINUTES = 72 * 60;
 export const CURING_SECTION_START = '; Curing cycle start';
-export const CURING_WARNINGS = [
-    'Appended curing uses nominal RPM and duration; controller motion limits may extend the actual runtime.',
-    'Curing disables software endstops and leaves them disabled after completion.'
-];
+export function getCuringWarnings(value: unknown): string[] {
+    const dialect = normalizeGCodeDialect(value);
+    return [
+        'Appended curing uses nominal RPM and duration; controller motion limits may extend the actual runtime.',
+        dialect === 'marlin'
+            ? 'Curing disables software endstops and leaves them disabled after completion.'
+            : 'Klipper curing does not emit Marlin software-endstop commands; configure axis limits in Klipper.'
+    ];
+}
+
+export const CURING_WARNINGS = getCuringWarnings(DEFAULT_GCODE_DIALECT);
 
 export function validateCuringParameters(value: unknown): ICuringValidationResult {
     const errors: string[] = [];
@@ -70,28 +83,33 @@ export function parseCuringParameters(value: unknown): ICuringParameters {
     };
 }
 
-export function generateCuringPlan(value: unknown): ICuringPlan {
+export function generateCuringPlan(
+    value: unknown,
+    gcodeDialect: TGCodeDialect = DEFAULT_GCODE_DIALECT
+): ICuringPlan {
     const parameters = parseCuringParameters(value);
+    const dialect = normalizeGCodeDialect(gcodeDialect);
+    const mandrelAxis = getMandrelGCodeAxis(dialect);
     const feedRateDegreesPerMinute = parameters.rpm * 360;
     const chunkDegrees = parameters.rpm * 360 * CURING_CHUNK_SECONDS / 60;
     const chunkCount = parameters.durationMinutes * 60 / CURING_CHUNK_SECONDS;
     const directionMultiplier = parameters.direction === 'positive' ? 1 : -1;
     const gcode = [
         CURING_SECTION_START,
-        `; Requested ${stripPrecision(parameters.rpm)} RPM for ${parameters.durationMinutes} minute${parameters.durationMinutes === 1 ? '' : 's'} in ${parameters.direction} Y`,
-        'G21',
+        `; Requested ${stripPrecision(parameters.rpm)} RPM for ${parameters.durationMinutes} minute${parameters.durationMinutes === 1 ? '' : 's'} in ${parameters.direction} ${mandrelAxis}`,
+        ...(dialect === 'marlin' ? ['G21'] : []),
         'G90',
-        'M211 S0',
-        'G92 Y0'
+        ...(dialect === 'marlin' ? ['M211 S0'] : []),
+        `G92 ${mandrelAxis}0`
     ];
 
     for (let index = 0; index < chunkCount; index++) {
         const targetDegrees = directionMultiplier * chunkDegrees * (index + 1);
-        gcode.push(`G1 Y${stripPrecision(targetDegrees)} F${stripPrecision(feedRateDegreesPerMinute)}`);
+        gcode.push(`G1 ${mandrelAxis}${stripPrecision(targetDegrees)} F${stripPrecision(feedRateDegreesPerMinute)}`);
     }
 
     gcode.push('M400');
-    gcode.push('G92 Y0');
+    gcode.push(`G92 ${mandrelAxis}0`);
     gcode.push('; Curing cycle complete');
 
     return {

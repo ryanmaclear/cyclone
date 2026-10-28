@@ -14,7 +14,7 @@ npm i
 
 Machine Configuration
 -------
-Future releases of Cyclone might include the ability to specify which gcode axis each machine axis is connected to, but for now, it is hardcoded to match my machine. The X axis is carriage movement, the Y axis is mandrel rotation, and the Z axis is delivery head rotation. Carriage coordinates are given in millimeters, so tune your steps/mm as usual for the X axis. The mandrel and delivery head are both rotational, which is not typical for the 3D printers that Marlin usually drives. The output for these axes is degrees rather than millimeters, so when configuring them, set the steps/mm to the steps/degree value from the motor manufacturer, also factoring in any gear ratios such that `Y360` produces a single complete mandrel rotation. 
+Cyclone can target Marlin or Klipper G-code. The X axis is carriage movement and Z is delivery-head rotation. The mandrel uses Y for Marlin and R for Klipper. Carriage coordinates are millimeters; mandrel and delivery-head coordinates are degrees, so configure the controller such that `Y360` or `R360` produces one complete mandrel rotation.
 
 Generating a Toolpath
 -----------

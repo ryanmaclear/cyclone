@@ -330,4 +330,32 @@ assert.ok(curedPlan.gcode.includes('; Curing cycle start'));
 assert.ok(curedPlan.gcode.includes('G1 Y60 F360'));
 assert.ok(plotGCode(curedPlan.gcode));
 
+const klipperRecipe = generateTubeRecipe({
+    ...baseInput,
+    disableSoftEndstops: true,
+    gcodeDialect: 'klipper'
+});
+const klipperPlan = planWindDetailed({
+    ...klipperRecipe.windParameters,
+    curing: {
+        rpm: 1,
+        durationMinutes: 1,
+        direction: 'positive'
+    }
+}, false, false);
+assert.strictEqual(klipperRecipe.windParameters.gcodeDialect, 'klipper');
+assert.deepStrictEqual(klipperPlan.gcode.slice(1, 4), ['G28 X', 'G0 X10 R0 Z0', 'G92 X0']);
+assert.ok(klipperPlan.gcode.some((command) => /^G0\b.*\bR/.test(command)));
+assert.ok(klipperPlan.gcode.includes('G1 R60 F360'));
+assert.ok(!klipperPlan.gcode.includes('M211 S0'));
+assert.ok(!klipperPlan.gcode.some((command) => /^(?:G0|G1|G92)\b.*\bY-?\d/.test(command)));
+assert.ok(plotGCode(klipperPlan.gcode));
+
+const invalidGCodeDialect = validateTubeRecipeInput({
+    ...baseInput,
+    gcodeDialect: 'reprap' as 'marlin'
+});
+assert.strictEqual(invalidGCodeDialect.valid, false);
+assert.ok(invalidGCodeDialect.errors.some((error) => error.includes('Marlin or Klipper')));
+
 console.log('Recipe tests passed');

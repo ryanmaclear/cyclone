@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import {
     CURING_CHUNK_SECONDS,
     generateCuringPlan,
+    getCuringWarnings,
     MAX_CURING_DURATION_MINUTES,
     parseCuringParameters,
     validateCuringParameters
@@ -50,6 +51,24 @@ assert.strictEqual(negativePlan.feedRateDegreesPerMinute, 900);
 assert.strictEqual(negativePlan.chunkCount, 12);
 assert.strictEqual(negativePlan.gcode[6], 'G1 Y-150 F900');
 assert.strictEqual(negativePlan.gcode[17], 'G1 Y-1800 F900');
+
+const klipperPlan = generateCuringPlan({
+    rpm: 1,
+    durationMinutes: 1,
+    direction: 'positive'
+}, 'klipper');
+assert.deepStrictEqual(klipperPlan.gcode.slice(0, 4), [
+    '; Curing cycle start',
+    '; Requested 1 RPM for 1 minute in positive R',
+    'G90',
+    'G92 R0'
+]);
+assert.strictEqual(klipperPlan.gcode[4], 'G1 R60 F360');
+assert.deepStrictEqual(klipperPlan.gcode.slice(-3), ['M400', 'G92 R0', '; Curing cycle complete']);
+assert.ok(!klipperPlan.gcode.includes('G21'));
+assert.ok(!klipperPlan.gcode.includes('M211 S0'));
+assert.ok(!klipperPlan.gcode.some((command) => /\bY-?\d/.test(command)));
+assert.ok(getCuringWarnings('klipper').some((warning) => warning.includes('Klipper curing')));
 
 assert.strictEqual(validateCuringParameters({rpm: 1, durationMinutes: 1, direction: 'positive'}).valid, true);
 assert.deepStrictEqual(parseCuringParameters({rpm: 0.25, durationMinutes: 90, direction: 'negative'}), {

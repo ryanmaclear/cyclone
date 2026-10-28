@@ -1,4 +1,5 @@
 import { degToRad } from './helpers';
+import { isGCodeDialect, TGCodeDialect } from './gcode-dialect';
 import { ELayerType, IWindParameters, TLayerParameters } from './planner/types';
 
 export type TStrengthPreset = 'light' | 'medium' | 'heavy';
@@ -28,6 +29,7 @@ export interface ITubeRecipeInput {
     fixedDeliveryHead?: boolean;
     fixedDeliveryHeadPosition?: number;
     disableSoftEndstops?: boolean;
+    gcodeDialect?: TGCodeDialect;
 }
 
 export interface IGeneratedRecipe {
@@ -164,6 +166,10 @@ export function validateTubeRecipeInput(input: ITubeRecipeInput): IRecipeValidat
         errors.push('Fixed delivery head position must be a finite number.');
     }
 
+    if (typeof input.gcodeDialect !== 'undefined' && !isGCodeDialect(input.gcodeDialect)) {
+        errors.push('G-code target must be Marlin or Klipper.');
+    }
+
     return {
         valid: errors.length === 0,
         errors
@@ -203,7 +209,8 @@ export function generateTubeRecipe(input: ITubeRecipeInput): IGeneratedRecipe {
                 mode: 'fixed',
                 positionDegrees: input.fixedDeliveryHeadPosition as number
             } : undefined,
-            disableSoftEndstops: input.disableSoftEndstops || undefined
+            disableSoftEndstops: input.disableSoftEndstops || undefined,
+            ...(input.gcodeDialect ? {gcodeDialect: input.gcodeDialect} : {})
         },
         summary: {
             layerMode: input.layerMode,

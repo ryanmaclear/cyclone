@@ -2,6 +2,7 @@ import type { IPlanWindResult } from './planner';
 import type { IGeneratedRecipe, ITubeRecipeInput } from './recipe';
 import type { IWindParameters } from './planner/types';
 import type { ICuringParameters, ICuringPlan } from './curing';
+import type { TGCodeDialect } from './gcode-dialect';
 
 export interface IPreviewRequest {
     recipeInput: ITubeRecipeInput;
@@ -10,6 +11,7 @@ export interface IPreviewRequest {
 
 export interface ICuringRequest {
     curingParameters: ICuringParameters;
+    gcodeDialect: TGCodeDialect;
 }
 
 export interface IArtifactPreviewRequest {

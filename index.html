@@ -53,6 +53,80 @@
         background: #a86600;
       }
 
+      .gcode-target-control {
+        align-items: center;
+        color: #ffffff;
+        display: flex;
+        font-size: 12px;
+        font-weight: 700;
+        gap: 8px;
+        margin-left: auto;
+        white-space: nowrap;
+      }
+
+      .gcode-target-title {
+        color: #cbd5d8;
+        font-weight: 400;
+      }
+
+      .gcode-target-toggle {
+        cursor: pointer;
+        display: inline-flex;
+        flex: 0 0 auto;
+        height: 22px;
+        position: relative;
+        width: 42px;
+      }
+
+      .gcode-target-toggle input {
+        height: 1px;
+        min-height: 0;
+        opacity: 0;
+        padding: 0;
+        position: absolute;
+        width: 1px;
+      }
+
+      .gcode-target-slider {
+        background: #66747b;
+        border: 1px solid #91a0a6;
+        border-radius: 12px;
+        inset: 0;
+        position: absolute;
+        transition: background 120ms ease;
+      }
+
+      .gcode-target-slider::before {
+        background: #ffffff;
+        border-radius: 50%;
+        content: '';
+        height: 16px;
+        left: 2px;
+        position: absolute;
+        top: 2px;
+        transition: transform 120ms ease;
+        width: 16px;
+      }
+
+      .gcode-target-toggle input:checked + .gcode-target-slider {
+        background: #a86600;
+        border-color: #d39a42;
+      }
+
+      .gcode-target-toggle input:checked + .gcode-target-slider::before {
+        transform: translateX(20px);
+      }
+
+      .gcode-target-toggle input:focus-visible + .gcode-target-slider {
+        outline: 2px solid #ffffff;
+        outline-offset: 2px;
+      }
+
+      .gcode-target-toggle input:disabled + .gcode-target-slider {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
       main {
         display: grid;
         gap: 18px;
@@ -675,10 +749,15 @@
 
       @media (max-width: 800px) {
         header {
+          flex-wrap: wrap;
           gap: 12px;
           height: auto;
           justify-content: space-between;
           padding: 12px 14px;
+        }
+
+        .gcode-target-control {
+          margin-left: 0;
         }
 
         main {
@@ -1027,6 +1106,15 @@
     <header>
       <h1>Cyclone</h1>
       <span class="status-pill" id="machine-status">Disconnected</span>
+      <div class="gcode-target-control" aria-label="G-code target">
+        <span class="gcode-target-title">G-code target</span>
+        <span>Klipper</span>
+        <label class="gcode-target-toggle">
+          <input id="gcode-dialect" type="checkbox" role="switch" aria-label="Use Marlin G-code; off uses Klipper" />
+          <span class="gcode-target-slider" aria-hidden="true"></span>
+        </label>
+        <span>Marlin</span>
+      </div>
     </header>
 
     <main>
@@ -1140,9 +1228,9 @@
                   <input id="fixed-delivery-head" type="checkbox" checked />
                   Disable Delivery Head
                 </label>
-                <label class="checkbox-option">
+                <label id="disable-soft-endstops-field" class="checkbox-option">
                   <input id="disable-soft-endstops" type="checkbox" checked />
-                  Disabled Soft Endstops
+                  <span id="disable-soft-endstops-label">Disable Soft Endstops</span>
                 </label>
                 </div>
               </details>
@@ -1184,8 +1272,8 @@
                 <label>
                   Direction
                   <select id="curing-direction">
-                    <option value="positive">+Y</option>
-                    <option value="negative">-Y</option>
+                    <option id="curing-direction-positive" value="positive">+Y</option>
+                    <option id="curing-direction-negative" value="negative">-Y</option>
                   </select>
                 </label>
                 <label>
@@ -1202,7 +1290,7 @@
                 </label>
               </div>
             </fieldset>
-            <p class="curing-note">
+            <p id="curing-controller-note" class="curing-note">
               Requested speed and duration are nominal. Controller feed and acceleration limits may extend runtime.
               Curing disables software endstops and leaves them disabled.
             </p>

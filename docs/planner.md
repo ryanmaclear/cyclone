@@ -1,13 +1,14 @@
 # Planner and G-code generation
 
-This document explains how Cyclone turns a `.wind` file into Marlin-flavored G-code. It describes the current implementation in `src/planner/`, including a few parameters that exist in the file format but are not fully used yet.
+This document explains how Cyclone turns a `.wind` file into Marlin- or Klipper-targeted G-code. It describes the current implementation in `src/planner/`, including a few parameters that exist in the file format but are not fully used yet.
 
 Cyclone is safety-sensitive software: the generated commands can move real hardware. Treat changes to winding geometry, feed rates, axis mapping, locks, lead-in/lead-out behavior, and terminal layers as behavioral changes to machine motion.
 
 ## Files involved
 
 - `src/cli-entry.ts` reads a `.wind` JSON file for the `plan` command, calls `planWind`, and writes the returned G-code lines to the output file.
-- `src/planner/types.ts` defines the `.wind` shape, layer types, logical axes, and the hardcoded logical-to-G-code axis mapping.
+- `src/planner/types.ts` defines the `.wind` shape, layer types, and logical axes.
+- `src/gcode-dialect.ts` defines controller targets and their logical-to-G-code axis mappings.
 - `src/planner/planner.ts` contains the layer planning algorithms.
 - `src/planner/machine.ts` contains `WinderMachine`, the G-code emitter, axis state tracker, segmentation logic, and time/tow usage estimates.
 - `src/planner/helpers.ts` contains interpolation and debug formatting helpers.
@@ -18,13 +19,13 @@ Cyclone is safety-sensitive software: the generated commands can move real hardw
 
 Cyclone uses three logical axes:
 
-| Logical axis | G-code axis | Units in generated G-code | Meaning |
-| --- | --- | --- | --- |
-| `carriage` | `X` | millimeters | Linear carriage position along the mandrel. `X0` is the near end and `X windLength` is the far end. |
-| `mandrel` | `Y` | degrees | Mandrel rotation. `Y360` is one full mandrel revolution. |
-| `deliveryHead` | `Z` | degrees | Delivery-head rotation/tilt. |
+| Logical axis | Marlin | Klipper | Units in generated G-code | Meaning |
+| --- | --- | --- | --- | --- |
+| `carriage` | `X` | `X` | millimeters | Linear carriage position along the mandrel. `X0` is the near end and `X windLength` is the far end. |
+| `mandrel` | `Y` | `R` | degrees | Mandrel rotation. `Y360` or `R360` is one full mandrel revolution. |
+| `deliveryHead` | `Z` | `Z` | degrees | Delivery-head rotation/tilt. |
 
-This mapping is defined by `AxisLookup` in `src/planner/types.ts` and is currently hardcoded. Marlin normally treats all axes as linear units, so the machine firmware must be configured so the `Y` and `Z` steps-per-mm values actually mean steps per degree.
+The optional top-level `.wind` field `gcodeDialect` is `marlin` or `klipper`; omitted values default to `marlin` for compatibility. Marlin must configure Y and Z steps per unit as steps per degree. Klipper uses the configured `R` G-code axis for the mandrel.
 
 The planner generally works in absolute positions. `WinderMachine` stores the last known logical position and emits absolute `G0` commands. When the planner needs to redefine the controller coordinate system, it emits `G92`.
 
@@ -61,7 +62,8 @@ There is currently no runtime validation of the `.wind` contents. A malformed fi
 
    ```gcode
    G28 X
-   G0 X10 Y0 Z0
+   G0 X10 Y0 Z0 ; Marlin
+   G0 X10 R0 Z0 ; Klipper
    G92 X0
    ```
 
@@ -96,9 +98,9 @@ Winding layers only emit rapid-positioning `G0` commands. The optional curing cy
 
 ### Optional curing cycle
 
-A `.wind` artifact may include `curing` with positive `rpm`, a whole-number `durationMinutes` from 1 through 4320, and a `positive` or `negative` direction. The curing generator converts RPM to a Y feed rate with `F = rpm * 360` degrees per minute.
+A `.wind` artifact may include `curing` with positive `rpm`, a whole-number `durationMinutes` from 1 through 4320, and a `positive` or `negative` direction. The curing generator converts RPM to a mandrel feed rate with `F = rpm * 360` degrees per minute.
 
-Curing begins with `G21`, `G90`, `M211 S0`, and `G92 Y0`. It emits cumulative ten-second Y-only `G1` targets without synchronization barriers between them, allowing Marlin to blend the segments into continuous rotation. One final `M400` waits for completion before `G92 Y0` restores logical zero. Software endstops remain disabled when curing finishes.
+Marlin curing begins with `G21`, `G90`, `M211 S0`, and `G92 Y0`. Klipper curing begins with `G90` and `G92 R0`; it omits the Marlin-only `G21` and `M211 S0` setup. Both targets emit cumulative ten-second mandrel-only `G1` targets without synchronization barriers, then use one final `M400` and coordinate reset.
 
 Requested RPM and duration are nominal. Firmware feed-rate and acceleration limits can make the physical cycle take longer than the requested duration.
 
@@ -705,7 +707,7 @@ Cyclone's planner currently generates a compact subset of G-code:
 - `; ...` comments
 - `G0` moves and feed-rate setting
 - `G92` coordinate resets
-- optional curing commands: `G21`, `G90`, `G1`, `M211 S0`, and `M400`
+- optional curing commands: `G90`, `G1`, `M400`, plus Marlin-only `G21` and `M211 S0`
 
 Outside the optional curing block, it does not currently emit:
 

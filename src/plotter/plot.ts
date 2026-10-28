@@ -45,7 +45,7 @@ export function plotGCode(gcode: string[]): Readable | void {
                 if (coordinate[0] === 'X') {
                     xCoord = Number.parseFloat(coordinate.slice(1));
                 }
-                if (coordinate[0] === 'Y') {
+                if (coordinate[0] === 'Y' || coordinate[0] === 'R') {
                     yCoord = Number.parseFloat(coordinate.slice(1));
                 }
             }
@@ -63,7 +63,7 @@ export function plotGCode(gcode: string[]): Readable | void {
             if (coordinate[0] === 'X') {
                 nextXCoord = Number.parseFloat(coordinate.slice(1));
             }
-            if (coordinate[0] === 'Y') {
+            if (coordinate[0] === 'Y' || coordinate[0] === 'R') {
                 nextYCoord = Number.parseFloat(coordinate.slice(1));
             }
         }

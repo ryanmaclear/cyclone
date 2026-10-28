@@ -9,7 +9,7 @@ import { planWindDetailed } from './planner';
 import { plotGCode } from './plotter';
 import { generateTubeRecipe } from './recipe';
 import { createArtifactRecipe } from './artifact';
-import { CURING_WARNINGS, generateCuringPlan, parseCuringParameters } from './curing';
+import { generateCuringPlan, getCuringWarnings, parseCuringParameters } from './curing';
 import {
   IArtifactPreviewRequest,
   ICuringRequest,
@@ -66,7 +66,7 @@ ipcMain.handle('recipe:generate-preview', async (_event, request: IPreviewReques
   const recipe = generateTubeRecipe(request.recipeInput);
   if (request.curingParameters) {
     recipe.windParameters.curing = parseCuringParameters(request.curingParameters);
-    recipe.warnings.push(...CURING_WARNINGS);
+    recipe.warnings.push(...getCuringWarnings(recipe.windParameters.gcodeDialect));
   }
   const plan = planWindDetailed(recipe.windParameters, false, false);
   const plotStream = plotGCode(plan.gcode);
@@ -81,7 +81,7 @@ ipcMain.handle('recipe:generate-preview', async (_event, request: IPreviewReques
 });
 
 ipcMain.handle('curing:generate', (_event, request: ICuringRequest) => {
-  return generateCuringPlan(request.curingParameters);
+  return generateCuringPlan(request.curingParameters, request.gcodeDialect);
 });
 
 ipcMain.handle('artifact:generate-preview', async (_event, request: IArtifactPreviewRequest): Promise<IPreviewResult> => {

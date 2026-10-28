@@ -1,6 +1,7 @@
-import { TCoordinate, ECoordinateAxes, AxisLookup, TCoordinateAxes, IPreviewContext, IPreviewSegment, TDeliveryHeadParameters } from './types';
+import { TCoordinate, ECoordinateAxes, TCoordinateAxes, IPreviewContext, IPreviewSegment, TDeliveryHeadParameters } from './types';
 import { stripPrecision } from '../helpers';
 import { interpolateCoordinates, serializeCoordinate } from './helpers';
+import { DEFAULT_GCODE_DIALECT, getGCodeAxisLookup, TGCodeDialect } from '../gcode-dialect';
 
 // Abstracts generating GCode while performing boundary checking, etc
 export class WinderMachine {
@@ -17,8 +18,14 @@ export class WinderMachine {
     private lastPosition: TCoordinateAxes;
     private mandrelDiameter: number;
     private deliveryHeadParameters: TDeliveryHeadParameters;
+    private axisLookup: Record<keyof TCoordinateAxes, string>;
 
-    constructor(mandrelDiameter: number, verboseOutput = false, deliveryHeadParameters: TDeliveryHeadParameters = {mode: 'automatic'}) {
+    constructor(
+        mandrelDiameter: number,
+        verboseOutput = false,
+        deliveryHeadParameters: TDeliveryHeadParameters = {mode: 'automatic'},
+        gcodeDialect: TGCodeDialect = DEFAULT_GCODE_DIALECT
+    ) {
         this.lastPosition = {
             [ECoordinateAxes.CARRIAGE]: 0,
             [ECoordinateAxes.MANDREL]: 0,
@@ -27,6 +34,7 @@ export class WinderMachine {
         this.mandrelDiameter = mandrelDiameter;
         this.verboseOutput = verboseOutput;
         this.deliveryHeadParameters = deliveryHeadParameters;
+        this.axisLookup = getGCodeAxisLookup(gcodeDialect);
     }
 
     public getGCode(): string[] {
@@ -83,7 +91,7 @@ export class WinderMachine {
         }
         let command = 'G92';
         for (const axis of Object.keys(filteredPosition)) {
-            const rawAxis = AxisLookup[axis as ECoordinateAxes];
+            const rawAxis = this.axisLookup[axis as ECoordinateAxes];
             command += ` ${rawAxis}${stripPrecision(filteredPosition[axis as ECoordinateAxes])}`;
 
             this.lastPosition[axis as ECoordinateAxes] = filteredPosition[axis as ECoordinateAxes] as number;
@@ -138,7 +146,7 @@ export class WinderMachine {
         let towLengthMMSq = 0;
         let command = 'G0';
         for (const axis in position) {
-            const rawAxis = AxisLookup[axis as ECoordinateAxes];
+            const rawAxis = this.axisLookup[axis as ECoordinateAxes];
             command += ` ${rawAxis}${stripPrecision(position[axis as ECoordinateAxes])}`;
 
             // Everything in this loop below here is just for the profiler

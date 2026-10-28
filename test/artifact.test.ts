@@ -63,6 +63,13 @@ const curingPlan = planWindDetailed(curingRecipe.windParameters, false, false);
 assert.ok(curingPlan.gcode.includes('; Curing cycle start'));
 assert.strictEqual(curingPlan.totalTimeS, planWindDetailed(validArtifact, false, false).totalTimeS + 90 * 60);
 
+const klipperArtifact: IWindParameters = {
+    ...validArtifact,
+    gcodeDialect: 'klipper'
+};
+assert.deepStrictEqual(validateWindArtifact(klipperArtifact), klipperArtifact);
+assert.ok(planWindDetailed(klipperArtifact, false, false).gcode.some((command) => /\bR-?\d/.test(command)));
+
 const recipe = createArtifactRecipe(validArtifact);
 assert.strictEqual(recipe.summary.layerMode, 'artifact');
 assert.strictEqual(recipe.summary.requestedLayerCount, 4);
@@ -122,6 +129,10 @@ assertInvalid({
     ...validArtifact,
     disableSoftEndstops: 'yes'
 }, 'Disable soft endstops must be true or false');
+assertInvalid({
+    ...validArtifact,
+    gcodeDialect: 'reprap'
+}, 'G-code target must be Marlin or Klipper');
 assertInvalid({
     ...validArtifact,
     curing: {
